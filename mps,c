@@ -38,7 +38,7 @@ queue_t ready_queue;
 
 void init_ready_queue(){
     pthread_mutex_init(&ready_queue.lock,NULL);
-    ready_queue.head = NULL;
+    ready_queue.head = ready_queue.tail = NULL;
     ready_queue.size = 0;
 }
 
@@ -184,7 +184,7 @@ void *processor_thread(void *arg) {
 
 int main(int argc, char* argv[]) {
     // Get and set args
-    init_ready_queue();
+    
     int proccessor_number = 2;
     char* sch_approach = "M";
     char* queue_sel_method = "RM";
@@ -228,18 +228,35 @@ int main(int argc, char* argv[]) {
     printf("infile name = %s\n", infile_name);
     printf("out mode = %d\n", out_mode);
     printf("outfile name = %s\n", outfile_name);
+   
     FILE* input_file = fopen(infile_name, "r");
+    if (input_file == NULL) {
+        perror("Error opening input file");
+        exit(EXIT_FAILURE);
+    }  
+
+    FILE* output_file = fopen(outfile_name,"w");
+    if (output_file == NULL) {
+        perror("Error opening output file");
+        exit(EXIT_FAILURE);
+    }
     char buffer[MAX_BUF_SIZE];
     int current_time = 0;
     int pid_counter = 1;
+   
+
 
     // initialize the ready queue and processor threads
-    ready_queue.head = ready_queue.tail = NULL;
-    pthread_mutex_init(&ready_queue.lock, NULL);
+    init_ready_queue();
+    //ready_queue.head = ready_queue.tail = NULL;
+    //pthread_mutex_init(&ready_queue.lock, NULL);
 
+    // create N processor threads
     for (int i = 0; i < proccessor_number; i++) {
         int* processor_id_ptr = malloc(sizeof(int));
         *processor_id_ptr = i + 1;
+        printf("pid is %d", *processor_id_ptr);
+        //printf("outfile name = %s\n", outfile_name);
         pthread_create(&processor_threads[i], NULL, processor_function, processor_id_ptr);
     }
     char line[80];
@@ -248,7 +265,7 @@ int main(int argc, char* argv[]) {
         if (strncmp(line, "PL", 2) == 0) { // a new burst
             // Parse the burst length from the line
             int burst_length = atoi(line + 3);
-            
+            printf("%d \n",burst_length);
             // Create a new burst item and fill in its fields
             burst_t* burst = malloc(sizeof(burst_t));
             burst->pid = ++last_pid;
@@ -268,7 +285,7 @@ int main(int argc, char* argv[]) {
         else if (strncmp(line, "IAT", 3) == 0) { // an interarrival time
             // Parse the interarrival time from the line
             int interarrival_time = atoi(line + 4);
-            
+            printf("%d\n",interarrival_time);
             // Sleep for the interarrival time
             usleep(interarrival_time * 1000);
             
