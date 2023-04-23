@@ -48,7 +48,8 @@ int num_bursts=0;
 int curr_pid =0;
 int last_pid=0;
 pthread_t processor_threads[MAX_NUM_PROCESSORS];
-time_t timestamp;
+int timestamp;
+struct timeval start_time, current_time;
 
 void* processor_function(void* arg) {
     int processor_id = *(int*) arg;
@@ -184,7 +185,7 @@ void *processor_thread(void *arg) {
 
 int main(int argc, char* argv[]) {
     // Get and set args
-    
+    gettimeofday(&start_time, NULL);
     int proccessor_number = 2;
     char* sch_approach = "M";
     char* queue_sel_method = "RM";
@@ -242,7 +243,6 @@ int main(int argc, char* argv[]) {
         exit(EXIT_FAILURE);
     }
     char buffer[MAX_BUF_SIZE];
-    int current_time = 0;
     int pid_counter = 1;
    
 
@@ -266,16 +266,17 @@ int main(int argc, char* argv[]) {
         if (strncmp(line, "PL", 2) == 0) { // a new burst
             // Parse the burst length from the line
             int burst_length = atoi(line + 3);
-            printf("%d \n",burst_length);
+            printf("BL %d \n",burst_length);
             fflush(stdout);
             // Create a new burst item and fill in its fields
             burst_t* burst = malloc(sizeof(burst_t));
             burst->pid = ++last_pid;
-            printf("%d \n",burst-> pid);
+            printf("burst id %d \n",burst-> pid);
             burst->burst_length = burst_length;
-            time (&timestamp);
+            gettimeofday(&current_time,NULL);
+            timestamp += (current_time.tv_sec - start_time.tv_sec)*1000 + (current_time.tv_usec- start_time.tv_usec)/1000;
             burst->arrival_time = timestamp;
-            printf("%d \n",burst->arrival_time);
+            printf("arrival time: %d \n",burst->arrival_time);
 
             burst->remaining_time = burst_length;
             burst->finish_time = 0;
@@ -291,16 +292,31 @@ int main(int argc, char* argv[]) {
         else if (strncmp(line, "IAT", 3) == 0) { // an interarrival time
             // Parse the interarrival time from the line
             int interarrival_time = atoi(line + 4);
-            printf("%d\n",interarrival_time);
+            printf("IAT: %d\n",interarrival_time);
             fflush(stdout);
             // Sleep for the interarrival time
-            usleep(interarrival_time * 1000);
+            usleep(interarrival_time);
             
             // Update the timestamp
-            time(&timestamp);
+            
             timestamp += interarrival_time;
         }
     }
+    // add a dummy item to the end of the queue
+    burst_t* end_marker = malloc(sizeof(burst_t));
+    end_marker-> pid = -1;
+    end_marker-> burst_length = 0;
+    end_marker-> arrival_time = 0;
+    end_marker-> remaining_time =0;
+    end_marker-> finish_time = 0;
+    end_marker-> turnaround_time =0;
+    end_marker->processor_id =0;
+    enqueue_burst(end_marker);
+
+    // wait for all processor threads to terminate
+    //for(int i =0; i <proccessor_number; i++){
+      //  pthread_join(&processor_threads[i], NULL);
+    //}
 
     // Close the input file
     fclose(input_file); 
