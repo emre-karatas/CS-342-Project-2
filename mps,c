@@ -6,6 +6,7 @@
 #include <sys/time.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <time.h>
 
 #define MAX_BUF_SIZE 256
 #define MAX_NUM_PROCESSORS 10
@@ -13,6 +14,7 @@
 #define MIN_INTERARRIVAL_TIME 10
 #define MIN_QUANTUM 10
 #define MAX_QUANTUM 100
+#define MAX_BURSTS 1000
 
 typedef struct burst_t {
     int pid;
@@ -29,11 +31,24 @@ typedef struct queue_t {
     burst_t* head;
     burst_t* tail;
     pthread_mutex_t lock;
+    int size;
 } queue_t;
 
 queue_t ready_queue;
+
+void init_ready_queue(){
+    pthread_mutex_init(&ready_queue.lock,NULL);
+    ready_queue.head = NULL;
+    ready_queue.size = 0;
+}
+
+
 int num_processors;
+int num_bursts=0;
+int curr_pid =0;
+int last_pid=0;
 pthread_t processor_threads[MAX_NUM_PROCESSORS];
+time_t timestamp;
 
 void* processor_function(void* arg) {
     int processor_id = *(int*) arg;
@@ -96,95 +111,44 @@ void enqueue_burst(burst_t* burst) {
 
     pthread_mutex_unlock(&ready_queue.lock);
 }
-void* processor_function(void* arg) {
-    int processor_id = *(int*) arg;
 
-    while (1) {
-        pthread_mutex_lock(&ready_queue.lock);
 
-        if (ready_queue.head == NULL) {
-            pthread_mutex_unlock(&ready_queue.lock);
-            break;
-        }
 
-        burst_t* current_burst = ready_queue.head;
-        ready_queue.head = ready_queue.head->next;
-
-        pthread_mutex_unlock(&ready_queue.lock);
-
-        printf("Processor %d executing burst %d (length %d) at time %d\n",
-               processor_id, current_burst->pid, current_burst->burst_length, current_burst->arrival_time);
-
-        current_burst->processor_id = processor_id;
-        current_burst->remaining_time = current_burst->burst_length;
-
-        int time_slice = 50; // for RR algorithm
-        int quantum = time_slice;
-
-        while (current_burst->remaining_time > 0) {
-            if (current_burst->remaining_time <= quantum) {
-                usleep(current_burst->remaining_time * 1000); // sleep in microseconds
-                current_burst->remaining_time = 0;
-            } else {
-                usleep(quantum * 1000);
-                current_burst->remaining_time -= quantum;
-            }
-
-            current_burst->arrival_time += time_slice;
-        }
-
-        current_burst->finish_time = current_burst->arrival_time;
-        current_burst->turnaround_time = current_burst->finish_time - current_burst->arrival_time;
-
-        printf("Processor %d finished burst %d at time %d\n",
-               processor_id, current_burst->pid, current_burst->finish_time);
-
-        free(current_burst);
-    }
-
-    pthread_exit(NULL);
-}
-
-void enqueue_burst(burst_t* burst) {
-    pthread_mutex_lock(&ready_queue.lock);
-
-    if (ready_queue.tail == NULL) {
-        ready_queue.head = ready_queue.tail = burst;
-    } else {
-        ready_queue.tail->next = burst;
-        ready_queue.tail = burst;
-    }
-
-    pthread_mutex_unlock(&ready_queue.lock);
-}
-
-/* Function to add a burst to the queue */
 void add_burst(int burst_length) {
-    pthread_mutex_lock(&queue_lock);   // Acquire the lock
+    pthread_mutex_lock(&ready_queue.lock);   // Acquire the lock
 
     // Check if the queue is full
     if (num_bursts == MAX_BURSTS) {
         printf("Queue is full, cannot add more bursts.\n");
+        pthread_mutex_unlock(&ready_queue.lock);  // Release the lock before exiting
         exit(1);
     }
 
-    // Create a new burst item
-    burst_t new_burst;
-    new_burst.pid = ++curr_pid;
-    new_burst.burst_length = burst_length;
-    new_burst.arrival_time = time(NULL);
-    new_burst.remaining_time = burst_length;
-    new_burst.finish_time = 0;
-    new_burst.turnaround_time = 0;
-    new_burst.processor_id = 0;
+    // Allocate memory for a new burst item
+    burst_t* new_burst = (burst_t*) malloc(sizeof(burst_t));
+    if (new_burst == NULL) {
+        printf("Failed to allocate memory for a new burst item.\n");
+        pthread_mutex_unlock(&ready_queue.lock);  // Release the lock before exiting
+        exit(1);
+    }
 
-    // Add the burst to the queue
-    rear = (rear + 1) % MAX_BURSTS;
-    burst_queue[rear] = new_burst;
+    // Initialize the new burst item
+    new_burst->pid = ++curr_pid;
+    new_burst->burst_length = burst_length;
+    new_burst->arrival_time = time(NULL);
+    new_burst->remaining_time = 0;
+    new_burst->finish_time = 0;
+    new_burst->turnaround_time = 0;
+    new_burst->processor_id = -1;
+    new_burst->next = NULL;
+
+    // Enqueue the new burst item
+    enqueue_burst(new_burst);
     num_bursts++;
 
-    pthread_mutex_unlock(&queue_lock); // Release the lock
+    pthread_mutex_unlock(&ready_queue.lock);  // Release the lock
 }
+
 /* Function to simulate a CPU burst */
 void simulate_burst(burst_t *burst, int processor_id) {
     burst->processor_id = processor_id;
@@ -195,20 +159,32 @@ void simulate_burst(burst_t *burst, int processor_id) {
     printf("Burst %d executed in processor %d. Turnaround time: %d\n", burst->pid, burst->processor_id, burst->turnaround_time);
 }
 
+burst_t* dequeue_process() {
+    if (ready_queue.head == NULL) {
+        return NULL;
+    } else {
+        burst_t* temp = ready_queue.head;
+        ready_queue.head = ready_queue.head->next;
+        ready_queue.size--;
+        return temp;
+    }
+}
+
 /* Function for the processor thread */
 void *processor_thread(void *arg) {
     int processor_id = *((int *)arg);
     while (1) {
         // Remove a burst from the queue
-        burst_t burst = remove_burst();
+        burst_t* burst = dequeue_process();
 
         // Simulate the burst
-        simulate_burst(&burst, processor_id);
+        simulate_burst(burst, processor_id);
     }
 }
 
 int main(int argc, char* argv[]) {
     // Get and set args
+    init_ready_queue();
     int proccessor_number = 2;
     char* sch_approach = "M";
     char* queue_sel_method = "RM";
@@ -245,8 +221,8 @@ int main(int argc, char* argv[]) {
     } 
     //outputting data(testing icin)
     printf("Num of processors = %d\n", proccessor_number);
-    printf("Sched approach = %s\n", scheduling_approach);
-    printf("Queue selection method = %s\n", queue_selection_method);
+    printf("Sched approach = %s\n", sch_approach);
+    printf("Queue selection method = %s\n", queue_sel_method);
     printf("Algorithm = %s\n", algorithm);
     printf("quantum = %d\n", quantum_number);
     printf("infile name = %s\n", infile_name);
@@ -266,40 +242,43 @@ int main(int argc, char* argv[]) {
         *processor_id_ptr = i + 1;
         pthread_create(&processor_threads[i], NULL, processor_function, processor_id_ptr);
     }
-
+    char line[80];
     // Process the bursts sequentially
-while (fgets(line, sizeof(line), file)) {
-    if (strncmp(line, "PL", 2) == 0) { // a new burst
-        // Parse the burst length from the line
-        int burst_length = atoi(line + 3);
-        
-        // Create a new burst item and fill in its fields
-        BurstItem* burst = malloc(sizeof(BurstItem));
-        burst->pid = ++last_pid;
-        burst->burst_length = burst_length;
-        burst->arrival_time = timestamp;
-        burst->remaining_time = burst_length;
-        burst->finish_time = 0;
-        burst->turnaround_time = 0;
-        burst->processor_id = 0;
-        
-        // Add the burst item to the tail of the queue
-        pthread_mutex_lock(&queue_mutex);
-        enqueue(&queue, burst);
-        pthread_mutex_unlock(&queue_mutex);
+    while (fgets(line, sizeof(line), input_file)) {
+        if (strncmp(line, "PL", 2) == 0) { // a new burst
+            // Parse the burst length from the line
+            int burst_length = atoi(line + 3);
+            
+            // Create a new burst item and fill in its fields
+            burst_t* burst = malloc(sizeof(burst_t));
+            burst->pid = ++last_pid;
+            burst->burst_length = burst_length;
+            time (&timestamp);
+            burst->arrival_time = timestamp;
+            burst->remaining_time = burst_length;
+            burst->finish_time = 0;
+            burst->turnaround_time = 0;
+            burst->processor_id = 0;
+            
+            // Add the burst item to the tail of the queue
+            pthread_mutex_lock(&ready_queue.lock);
+            enqueue_burst(burst);
+            pthread_mutex_unlock(&ready_queue.lock);
+        }
+        else if (strncmp(line, "IAT", 3) == 0) { // an interarrival time
+            // Parse the interarrival time from the line
+            int interarrival_time = atoi(line + 4);
+            
+            // Sleep for the interarrival time
+            usleep(interarrival_time * 1000);
+            
+            // Update the timestamp
+            time(&timestamp);
+            timestamp += interarrival_time;
+        }
     }
-    else if (strncmp(line, "IAT", 3) == 0) { // an interarrival time
-        // Parse the interarrival time from the line
-        int interarrival_time = atoi(line + 4);
-        
-        // Sleep for the interarrival time
-        usleep(interarrival_time * 1000);
-        
-        // Update the timestamp
-        timestamp += interarrival_time;
-    }
-}
 
-// Close the input file
-fclose(file); }
+    // Close the input file
+    fclose(input_file); 
+}
 
