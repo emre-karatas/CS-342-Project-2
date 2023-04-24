@@ -484,7 +484,7 @@ int main(int argc, char* argv[])
             args[i].index = 0;
             if(count == 1)
             	break;
-            i++;
+            count++;
         }
         else 
         {
