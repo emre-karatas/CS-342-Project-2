@@ -490,9 +490,6 @@ int main(int argc, char* argv[])
         {
         
             args[i].index = i;
-            args[i].algorithm = algorithm;
-            args[i].q = quantum_number;
-            pthread_create(&threads[i], NULL, process_thread, (void*) &args[i]);
         }
             
         args[i].algorithm = algorithm;
