@@ -31,7 +31,7 @@ typedef struct schleduling_arguments
 {
     char* algorithm;
     int q;
-    int i;
+    int index;
 } schleduling_arguments;
 
 
@@ -290,16 +290,17 @@ void insertAscendingOrder(struct queue_elements** head, struct queue_elements** 
 
 
 void* process_thread(void *arg) {
-    struct schleduling_arguments* args = arg;
-    int index = args->i;
+    struct schleduling_arguments* args = (schleduling_arguments*)arg;
+    int index = args->index;
+    printf("Created thread with q index %d\n", index);
     printf("%d", index);
     while (1) 
     {
         pthread_mutex_lock(&queues[index]->lock);
         if (queues[index] == NULL) 
         {
-            sleep(1 / 1000);
             pthread_mutex_unlock(&queues[index]->lock);
+            usleep(1);
         }
         else 
         {
@@ -339,7 +340,7 @@ void* process_thread(void *arg) {
 		pthread_mutex_lock(&queues[index]->lock);
 		struct queue_elements* cur = get_element_by_index(queues[index], 0);
 		pthread_mutex_unlock(&queues[index]->lock);
-		printf("%d\n", cur->current_thread->pid);
+		printf("pid: %d\n", cur->current_thread->pid);
 		if (cur->current_thread->pid == -1) 
 		{
     			pthread_exit(0);
@@ -472,21 +473,31 @@ int main(int argc, char* argv[])
     	}
      }
      printf("checkpoint 1\n");
-
-   struct schleduling_arguments args[processor_number];
+     struct schleduling_arguments args[processor_number];
     // Create processor threads
     pthread_t threads[processor_number];
+    int count = 0;
     for (int i = 0; i < processor_number; i++)
     {
-
-        if (strcmp(sch_approach, "S") == 0)
-            args[i].i = 0;
-        else
-            args[i].i = i;
+	if (strcmp(sch_approach, "S") == 0) 
+	{
+            args[i].index = 0;
+            if(count == 1)
+            	break;
+            i++;
+        }
+        else 
+        {
+        
+            args[i].index = i;
+            args[i].algorithm = algorithm;
+            args[i].q = quantum_number;
+            pthread_create(&threads[i], NULL, process_thread, (void*) &args[i]);
+        }
             
         args[i].algorithm = algorithm;
         args[i].q = quantum_number;
-        pthread_create(&threads[i], NULL, process_thread, (void*) &args);
+        pthread_create(&threads[i], NULL, process_thread, (void*) &args[i]);
     }
     printf("checkpoint 2\n");
     char* line = NULL;
