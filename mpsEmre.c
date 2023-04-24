@@ -295,7 +295,7 @@ void* process_thread(void *arg) {
     printf("%d", index);
     while (1) 
     {
-        //pthread_mutex_lock(&queues[index]->lock);
+        pthread_mutex_lock(&queues[index]->lock);
         if (queues[index] == NULL) 
         {
             sleep(1 / 1000);
