@@ -53,6 +53,7 @@ struct queue_elements** queues;
 struct queue_elements** tails;
 struct queue_elements* doneProcessesHead;
 struct queue_elements* doneProcessesTail;
+struct timeval start;
 
 int num_processors;
 int num_bursts=0;
@@ -230,14 +231,8 @@ int findLeastLoad(int proc_count)
     return minIndex;
 }
 
-void insertToEnd(queue_elements** head, queue_elements** tail, threads* newThread) 
+void insertToEnd(queue_elements** head, queue_elements** tail, queue_elements* newElement) 
 {
-    // Create a new queue element to store the new thread
-    struct queue_elements* newElement = (struct queue_elements*) malloc(sizeof(struct queue_elements));
-    newElement->current_thread = newThread;
-    newElement->previous = NULL;
-    newElement->next = NULL;
-
     // If the queue is empty, set the head and tail to the new element
     if (*head == NULL) 
     {
@@ -247,6 +242,7 @@ void insertToEnd(queue_elements** head, queue_elements** tail, threads* newThrea
     else 
     {
         // Insert the new element to the end of the queue
+        newElement->next = (*tail)->next;
         newElement->previous = *tail;
         (*tail)->next = newElement;
         *tail = newElement;
@@ -299,7 +295,7 @@ void* process_thread(void *arg) {
     printf("%d", index);
     while (1) 
     {
-        pthread_mutex_lock(&queues[index]->lock);
+        //pthread_mutex_lock(&queues[index]->lock);
         if (queues[index] == NULL) 
         {
             sleep(1 / 1000);
@@ -378,9 +374,9 @@ void* process_thread(void *arg) {
                 pointer->processor_id = index;
 
                 // add to finished processes list
-                pthread_mutex_lock(doneProcessesLock);
-                insertAscendingOrder(&doneProcessesHead, &doneProcessesTail, cur);
-                pthread_mutex_unlock(doneProcessesLock);
+                pthread_mutex_lock(&doneProcessesHead->lock);
+                insertAscendingOrder(&doneProcessesHead, &doneProcessesTail, current);
+                pthread_mutex_unlock(&doneProcessesHead->lock);
             }
         }
     }       
@@ -445,6 +441,9 @@ int main(int argc, char* argv[])
     printf("outfile name = %s\n", outfile_name);
     fflush(stdout);
     
+     // Get and record start time
+    gettimeofday(&start, NULL);
+    
    
     // Create queue(s)
     if (strcmp(sch_approach, "S") == 0) 
@@ -460,7 +459,7 @@ int main(int argc, char* argv[])
     }	
     else  
     {
-    	queues = (queue_elements**)malloc(proccessor_number * sizeof(queue_elements*));
+    	queues = (queue_elements**)malloc(processor_number * sizeof(queue_elements*));
     	for (int i = 0; i < processor_number; i++) 
     	{
         	*(queues+i) = (queue_elements*)malloc(sizeof(queue_elements));
@@ -472,6 +471,7 @@ int main(int argc, char* argv[])
         	(*(queues+i))->lock = *mutex;
     	}
      }
+     printf("checkpoint 1\n");
 
    struct schleduling_arguments args[processor_number];
     // Create processor threads
@@ -488,6 +488,7 @@ int main(int argc, char* argv[])
         args[i].q = quantum_number;
         pthread_create(&threads[i], NULL, process_thread, (void*) &args);
     }
+    printf("checkpoint 2\n");
     char* line = NULL;
     size_t len = 0;
     ssize_t read;
@@ -505,6 +506,7 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
     int cur_id = 0;
+    printf("checkpoint 3\n");
 
     while ((read = getline(&line, &len, input_file)) != -1) 
     {
@@ -521,13 +523,15 @@ int main(int argc, char* argv[])
         t->burst_length = burst_len;
         t->remaining_time = burst_len;
         t->arrival_time = timeval_difference(&start, &arrival);
+        printf("checkpoint 4\n");
         
         if (strcmp(sch_approach,"S") == 0) 
         {
         
-            pthread_mutex_lock(queues[0]->lock);
+            pthread_mutex_lock(&queues[0]->lock);
             insertToEnd(&queues[0],&tails[0],createQueueElement(t));
-            pthread_mutex_unlock(queues[0]->lock);
+            pthread_mutex_unlock(&queues[0]->lock);
+            printf("checkpoint S\n");
         }
         else if (strcmp(sch_approach,"M") == 0) 
         {
@@ -538,12 +542,14 @@ int main(int argc, char* argv[])
                 printf("Cur id = %d\n", cur_id);
                 q_index = cur_id % processor_number;
                 printf("Selected queue = %d\n", q_index);
+                printf("checkpoint RM\n");
             }
-             else if (strcmp(queue_selection_method,"LM") == 0) 
+             else if (strcmp(queue_sel_method,"LM") == 0) 
              {
                 printf("\nIn load queue selection\n");
                 q_index = findLeastLoad(processor_number);
                 printf("Selected queue = %d\n", q_index);
+                printf("checkpoint LM\n");
             }
             pthread_mutex_lock(&queues[q_index]->lock);
             insertToEnd(&queues[q_index],&tails[q_index],createQueueElement(t));
@@ -561,9 +567,9 @@ int main(int argc, char* argv[])
 	    sleep(iat / 1000);
         }
         // Add dummy Nodes
-    	if (strcmp(scheduling_approach, "S") == 0) 
+    	if (strcmp(sch_approach, "S") == 0) 
     	{
-        	threads *t = (struct threads*)malloc(sizeof(struct threads));
+        	struct threads *t = (struct threads*)malloc(sizeof(struct threads));
         	t->pid = -1;
         	t->burst_length = 10000000;
         	t->remaining_time = 10000000;
@@ -577,7 +583,7 @@ int main(int argc, char* argv[])
     	{
         	for (int i = 0; i < processor_number; i++) 
         	{
-        	    	threads *t = (struct threads*)malloc(sizeof(struct threads));
+        	    	struct threads *t = (struct threads*)malloc(sizeof(struct threads));
         	    	t->pid = -1;
         		t->burst_length = 10000000;
         		t->remaining_time = 1000000;
@@ -606,6 +612,7 @@ int main(int argc, char* argv[])
         	printf("Queue %d\n", i);
         	displayList(queues[i]);
     	}
+    }
 
 
     return 0;
