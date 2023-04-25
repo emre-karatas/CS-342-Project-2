@@ -43,10 +43,6 @@ struct thread_args {
 
 struct timeval start_time, current_time;
 
-typedef struct finish_list_node_t {
-    burst_t* burst;
-    struct finish_list_node_t* next;
-} finish_list_node_t;
 
 typedef struct finish_list_t {
     burst_t* head;
@@ -54,6 +50,8 @@ typedef struct finish_list_t {
     pthread_mutex_t lock;
     int size;
 } finish_list_t;
+finish_list_t* finish_list;
+
 
 void finish_list_init(finish_list_t* list) {
     list->head = NULL;
@@ -267,7 +265,6 @@ int curr_pid =0;
 int last_pid=0;
 int num_bursts_inqueue;
 time_t timestamp;
-finish_list_t* finish_list;
 
 
 void displayList(queue_t* root) 
@@ -355,6 +352,20 @@ burst_t* pick_from_queue(queue_t* queue, char* algorithm) {
     return selected_burst;
 }
 
+void enqueue_burst(burst_t* burst, queue_t* queue) {
+    pthread_mutex_lock(&queue->lock);
+
+    if (queue->tail == NULL) {
+        queue->head = queue->tail = burst;
+    } else {
+        queue->tail->next = burst;
+        queue->tail = burst;
+    }
+	num_bursts_inqueue++;
+    queue->size++;
+    pthread_mutex_unlock(&queue->lock);
+}
+
 
 void* processor_function(void* arg) {
     struct thread_args* args = (struct thread_args*) arg;
@@ -398,7 +409,7 @@ void* processor_function(void* arg) {
             current_burst->finish_time = get_current_time();
             current_burst->turnaround_time = current_burst->finish_time - current_burst->arrival_time;
             //current_burst->waiting_time = current_burst->turnaround_time - current_burst->burst_length;
-            push_to_finish_list(current_burst);
+            push_to_finish_list(finish_list, current_burst);
         } else {
             // Burst is not finished, put it back into the queue
             enqueue_burst(current_burst,queue);
@@ -411,19 +422,6 @@ void* processor_function(void* arg) {
 }
 
 
-void enqueue_burst(burst_t* burst, queue_t* queue) {
-    pthread_mutex_lock(&queue->lock);
-
-    if (queue->tail == NULL) {
-        queue->head = queue->tail = burst;
-    } else {
-        queue->tail->next = burst;
-        queue->tail = burst;
-    }
-	num_bursts_inqueue++;
-    queue->size++;
-    pthread_mutex_unlock(&queue->lock);
-}
 
 
 
@@ -474,21 +472,6 @@ void simulate_burst(burst_t *burst, int processor_id)
 }
 
 
-/* Function for the processor thread */
-void *processor_thread(void *arg) 
-{
-    int processor_id = *((int *)arg);
-    while (1) 
-    {
-        // Remove a burst from the queue
-        burst_t* burst = dequeue_process(processor_id);
-
-        // Simulate the burst
-        simulate_burst(burst, processor_id);
-    }
-}
-
-
 
 int main(int argc, char* argv[])
 {
@@ -501,7 +484,8 @@ int main(int argc, char* argv[])
 	char* infile_name = "in.txt";
 	int out_mode = 1;
 	char* outfile_name = "out.txt";
-	
+	int method=0;
+
 	
 	// Burst will be generated random if random > 0, read file if random == 0
     	int random = 1;
@@ -510,7 +494,6 @@ int main(int argc, char* argv[])
     	int iat_mean = 200;
     	int iat_min = 10;
     	int iat_max = 1000;
-        int method;
 
     	int burst_mean = 100;
     	int burst_min = 10;
@@ -571,16 +554,23 @@ int main(int argc, char* argv[])
 	printf("infile name = %s\n", infile_name);
 	printf("out mode = %d\n", out_mode);
 	printf("outfile name = %s\n", outfile_name);
+    
     if(strcmp(queue_sel_method, "RM") == 0){
         method = 1;
     }
     else if(strcmp(queue_sel_method, "LM") == 0){
         method = 2;
     }
-	
+    printf("%d", method);
+    fflush(stdout);
+
     queue_t* ready_queue;
     queue_t* ready_queues[processor_number];
+    finish_list =(finish_list_t*)malloc(sizeof(finish_list_t));
     finish_list_init(finish_list);
+    printf("test1");
+    fflush(stdout);
+
 	// Initialize ready queues
     if(strcmp(sch_approach, "S")==0){
         queue_init(ready_queue);
@@ -695,7 +685,7 @@ int main(int argc, char* argv[])
     if(strcmp(sch_approach, "S")==0){
         burst_t* dummy_burst = malloc(sizeof(burst_t));
         dummy_burst->pid = -1;
-        enqueue_burst(dummy_burst, &ready_queue);
+        enqueue_burst(dummy_burst, ready_queue);
     }
     else{
         burst_t* dummy_burst = malloc(sizeof(burst_t));
