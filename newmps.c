@@ -38,6 +38,7 @@ struct thread_args {
     char* algorithm;
     int q;
     int thread_id;
+    queue_t* queue;
 };
 
 struct timeval start_time, current_time;
@@ -538,14 +539,33 @@ int main(int argc, char* argv[])
 	printf("checkpoint 1- initialized ready queues\n");
 
 	// Create processor threads
-	pthread_t processor_threads[processor_number];
-	for (int i = 0; i < processor_number; i++) 
-	{
-   		int* processor_id_ptr = malloc(sizeof(int));
-    		*processor_id_ptr = i + 1;
-    		pthread_create(&processor_threads[i], NULL, processor_function, (void*)processor_id_ptr);
-    		printf("checkpoint 2 - thread %d creating\n", *processor_id_ptr);
-	}
+    pthread_t threads[processor_number];
+   
+    if(strcmp(sch_approach, "S")==0){
+        for (int i = 0; i < processor_number; i++) {
+            struct thread_args* args = (struct thread_args*) malloc(sizeof(struct thread_args));
+            args->algorithm = algorithm;
+            args->q = quantum_number;
+            args->thread_id = i+1;
+            args->queue = ready_queue; // Add this line to pass the ready queue
+            pthread_create(&threads[i], NULL, processor_function, (void*) args);
+        }
+
+    }
+    else{
+        pthread_t threads[processor_number];
+        for (int i = 0; i < processor_number; i++) {
+            struct thread_args* args = (struct thread_args*) malloc(sizeof(struct thread_args));
+            args->algorithm = algorithm;
+            args->q = quantum_number;
+            args->thread_id = i+1;
+            args->queue = &(*ready_queues)[i]; // Add this line to pass the ready queue
+            pthread_create(&threads[i], NULL, processor_function, (void*) args);
+        }
+
+    }
+    
+
 	
 	// Open input file and initialize variables
 	FILE* input_file = fopen(infile_name, "r");
@@ -636,7 +656,7 @@ int main(int argc, char* argv[])
 	// Wait for processor threads to terminate
 	for (int i = 0; i < processor_number; i++) 
 	{
-    		pthread_join(processor_threads[i], NULL);
+    		pthread_join(threads[i], NULL);
     		printf("checkpoint 15 - thread %d is joining\n",i);
 	}
 }
