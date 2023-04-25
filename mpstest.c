@@ -201,9 +201,14 @@ int select_queue_index(char* queue_sel_method, int num_queues, int burst_length)
     {
         index = get_min_queue_index(num_queues);
     } 
-    else
+    else if (strcmp(queue_sel_method, "LM") == 0) 
     {
         index = get_load_balancing_index(num_queues); //get the queue with the least load in load-balancing approach
+    }
+    // for NA, just add at the end index
+    else
+    {
+    	index = num_queues - 1;
     }
     return index;
 }
@@ -252,7 +257,7 @@ void* processor_function(void* arg)
     printf("%d", index);
     while (1) 
     {
-        printf("inside thread function");
+        printf("inside thread function\n");
 
         pthread_mutex_lock(&ready_queues[index]->lock);
         if (ready_queues[index]->head == NULL) 
@@ -343,19 +348,24 @@ void* processor_function(void* arg)
 void enqueue_burst(burst_t* burst, int queue_index) 
 {
     pthread_mutex_lock(&ready_queues[queue_index]->lock);
+    printf("checkpoint 7- locked inside enqueue_burst \n");
 
     if (ready_queues[queue_index]->tail == NULL) 
     {
+        burst->next = NULL; // initialize next pointer for first node
         ready_queues[queue_index]->head = ready_queues[queue_index]->tail = burst;
     } 
     else 
     {
+        burst->next = NULL; // initialize next pointer for new node
         ready_queues[queue_index]->tail->next = burst;
         ready_queues[queue_index]->tail = burst;
     }
     
     pthread_mutex_unlock(&ready_queues[queue_index]->lock);
+    printf("checkpoint 7- unlocked inside enqueue_burst \n");
 }
+
 
 
 
@@ -451,6 +461,22 @@ int main(int argc, char* argv[])
 	char* infile_name = "in.txt";
 	int out_mode = 1;
 	char* outfile_name = "out.txt";
+	
+	
+	// Burst will be generated random if random > 0, read file if random == 0
+    	int random = 1;
+
+    	// Random variables
+    	int iat_mean = 200;
+    	int iat_min = 10;
+    	int iat_max = 1000;
+
+    	int burst_mean = 100;
+    	int burst_min = 10;
+    	int burst_max = 500;
+
+    	int pc = 10;
+    	
 	// Parse command line arguments
 	for (int i = 0; i < argc; i++) 
 	{
@@ -482,7 +508,16 @@ int main(int argc, char* argv[])
     		}
     		else if (strcmp(argv[i], "-r") == 0) 
     		{
-    		    // Do nothing
+    		    random++;
+            	    iat_mean = atoi(argv[i + 1]);
+            	    iat_min = atoi(argv[i + 2]);
+            	    iat_max = atoi(argv[i + 3]);
+
+                    burst_mean = atoi(argv[i + 4]);
+                    burst_min = atoi(argv[i + 5]);
+                    burst_max = atoi(argv[i + 6]);
+
+                    pc = atoi(argv[i + 7]);
     		}
 	} 
 
@@ -545,15 +580,16 @@ int main(int argc, char* argv[])
         		burst->turnaround_time = 0;
         		burst->processor_id = 0;
         		printf("checkpoint 5- PL burst item is created \n");
-
+        		
+        		if (strcmp(sch_approach, "S") == 0) 
+    			{
+        			queue_sel_method = "NA";
+    			}
         		// Select queue index according to queue selection method
 			int index = select_queue_index(queue_sel_method, processor_number,burst->burst_length);
-			printf("checkpoint 6- queue index is selected \n");
-			pthread_mutex_lock(&ready_queues[index]->lock);
-			printf("checkpoint 7- locked \n");
+			printf("checkpoint 6- queue index is selected  %d \n", index);
 			enqueue_burst(burst, ready_queues[index]->size);
 			printf("checkpoint 8- burst is enqueued \n");
-			pthread_mutex_unlock(&ready_queues[index]->lock);
 			printf("checkpoint 9 - unlocked \n");
 		}
 		else if (strncmp(line, "IAT", 3) == 0) 
@@ -561,16 +597,38 @@ int main(int argc, char* argv[])
     			// an interarrival time
         		// Parse the interarrival time from the line
         		int interarrival_time = atoi(line + 4);
+        		printf("checkpoint 10 - inside IAT before sleeping \n");
         
         		// Sleep for the interarrival time
         		usleep(interarrival_time * 1000);
+        		printf("checkpoint 11 - inside IAT after sleeping \n");
         
         		// Update the timestamp
         		time(&timestamp);
         		timestamp += interarrival_time;
+        		printf("checkpoint 12 - inside IAT timestamp updated \n");
     		}
 	} 
 	
+	// Define a dummy burst to indicate end of simulation
+	burst_t* dummy_burst = NULL;
+	
+	printf("checkpoint 13 - dummy burst is created \n");
+
+	
 	// Close the input file
     	fclose(input_file); 
+    	
+    	// Add dummy bursts to each queue
+	for (int i = 0; i < processor_number; i++) 
+	{
+    		enqueue_burst(dummy_burst, i);
+	}
+	printf("checkpoint 14 - dummy bursts are added to the end of queues \n");
+	// Wait for processor threads to terminate
+	for (int i = 0; i < processor_number; i++) 
+	{
+    		pthread_join(processor_threads[i], NULL);
+    		printf("checkpoint 15 - thread %d is joining\n",i);
+	}
 }
