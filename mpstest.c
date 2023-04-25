@@ -41,7 +41,7 @@ struct thread_args {
 };
 
 queue_t** ready_queues;
-
+struct timeval start_time, current_time;
 
 
 
@@ -452,6 +452,7 @@ void *processor_thread(void *arg)
 
 int main(int argc, char* argv[])
 {
+	 gettimeofday(&start_time, NULL);
 	// Set default values
 	int processor_number = 2;
 	char* sch_approach = "M";
@@ -556,7 +557,6 @@ int main(int argc, char* argv[])
 	// Open input file and initialize variables
 	FILE* input_file = fopen(infile_name, "r");
 	char line[MAX_BUF_SIZE];
-	int current_time = 0;
 	int pid_counter = 1;
 	printf("checkpoint 3- starting processing bursts \n");
 	// Process the bursts sequentially
@@ -569,18 +569,25 @@ int main(int argc, char* argv[])
        			// Parse the burst length from the line
         		int burst_length = atoi(line + 3);
         
-        		// Create a new burst item and fill in its fields
-        		burst_t* burst = malloc(sizeof(burst_t));
-        		burst->pid = ++last_pid;
-        		burst->burst_length = burst_length;
-        		time (&timestamp);
-        		burst->arrival_time = timestamp;
-        		burst->remaining_time = burst_length;
-        		burst->finish_time = 0;
-        		burst->turnaround_time = 0;
-        		burst->processor_id = 0;
-        		printf("checkpoint 5- PL burst item is created \n");
-        		
+        		printf("Burst length: %d \n",burst_length);
+            		fflush(stdout);
+            		
+            		// Create a new burst item and fill in its fields
+            		burst_t* burst = malloc(sizeof(burst_t));
+            		burst->pid = ++last_pid;
+            		printf("burst id: %d \n",burst-> pid);
+            		burst->burst_length = burst_length;
+            		gettimeofday(&current_time,NULL);
+            		timestamp += (current_time.tv_sec - start_time.tv_sec)*1000 + (current_time.tv_usec- start_time.tv_usec)/1000;
+            		burst->arrival_time = timestamp;
+           		printf("arrival time: %d \n",burst->arrival_time);
+
+            		burst->remaining_time = burst_length;
+            		burst->finish_time = 0;
+            		burst->turnaround_time = 0;
+            		burst->processor_id = 0;
+         
+         
         		if (strcmp(sch_approach, "S") == 0) 
     			{
         			queue_sel_method = "NA";
@@ -597,24 +604,19 @@ int main(int argc, char* argv[])
     			// an interarrival time
         		// Parse the interarrival time from the line
         		int interarrival_time = atoi(line + 4);
+        		printf("IAT: %d\n",interarrival_time);
+            		fflush(stdout);
         		printf("checkpoint 10 - inside IAT before sleeping \n");
         
         		// Sleep for the interarrival time
-        		usleep(interarrival_time * 1000);
+        		usleep(interarrival_time);
         		printf("checkpoint 11 - inside IAT after sleeping \n");
         
-        		// Update the timestamp
-        		time(&timestamp);
         		timestamp += interarrival_time;
         		printf("checkpoint 12 - inside IAT timestamp updated \n");
     		}
 	} 
 	
-	// Define a dummy burst to indicate end of simulation
-	burst_t* dummy_burst = NULL;
-	
-	printf("checkpoint 13 - dummy burst is created \n");
-
 	
 	// Close the input file
     	fclose(input_file); 
@@ -622,6 +624,16 @@ int main(int argc, char* argv[])
     	// Add dummy bursts to each queue
 	for (int i = 0; i < processor_number; i++) 
 	{
+		// Define a dummy burst to indicate end of simulation
+		burst_t* dummy_burst = NULL;
+		dummy_burst->pid = -1;
+   		dummy_burst->burst_length = 0;
+    		dummy_burst->arrival_time = 0;
+    		dummy_burst->remaining_time =0;
+    		dummy_burst->finish_time = 0;
+    		dummy_burst->turnaround_time =0;
+    		dummy_burst->processor_id =0;
+		printf("checkpoint 13 - dummy burst is created \n");
     		enqueue_burst(dummy_burst, i);
 	}
 	printf("checkpoint 14 - dummy bursts are added to the end of queues \n");
