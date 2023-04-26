@@ -86,23 +86,19 @@ void push_to_finish_list(finish_list_t* finish_list, burst_t* burst)
     pthread_mutex_unlock(&finish_list->lock);
 }
 
-
-void queue_init(queue_t* queue)
-{
+void queue_init(queue_t* queue){
     queue-> head = NULL;
     queue-> tail = NULL;
-    pthread_mutex_init(&queue->lock, NULL);
     queue->size = 0;
+    pthread_mutex_init(&queue->lock, NULL);
 }
 
-void multi_queues_init(queue_t** multi_queues, int num_processors)
-{
-    // Allocate memory for the array of queues and initialize to zeros
-    *multi_queues = calloc(num_processors, sizeof(queue_t));
+void multi_queues_init(queue_t** multi_queues, int num_processors){
+    // Allocate memory for the array of queues
+    *multi_queues = malloc(sizeof(queue_t) * num_processors);
 
     // Initialize each queue in the array
-    for(int i=0; i<num_processors; i++)
-    {
+    for(int i=0; i<num_processors; i++){
         queue_init(&((*multi_queues)[i]));
     }
 }
@@ -301,7 +297,7 @@ void displayList(finish_list_t* root)
     }
 }
 
-burst_t* pick_from_queue(queue_t* queue, char* algorithm) 
+burst_t* pick_from_queue(queue_t* queue, char* algorithm, int quantum) 
 {
     pthread_mutex_lock(&queue->lock); // lock the queue
 
@@ -319,42 +315,11 @@ burst_t* pick_from_queue(queue_t* queue, char* algorithm)
             {
                 queue->tail = NULL;
             }
+            selected_burst->next = NULL;
+            selected_burst->arrival_time = get_current_time();
             printf("In FCFS, head is selected.\n");
         } 
-        else if (strcmp(algorithm, "SJF") == 0) 
-        {
-            printf("SJF is selected.\n");
-            // if there is a tie, the item closer to head is picked
-            burst_t* curr = queue->head;
-            burst_t* prev = NULL;
-            burst_t* prev_selected = NULL;
-            burst_t* selected = curr;
-            while (curr != NULL) 
-            {
-                if (curr->burst_length < selected->burst_length) 
-                {
-                    selected = curr;
-                    prev_selected = prev;
-                }
-                prev = curr;
-                curr = curr->next;
-            }
-            printf("In SJF, shortest job is selected.\n");
-            selected_burst = selected;
-            if (prev_selected != NULL) 
-            {
-                prev_selected->next = selected->next;
-            } 
-            else 
-            {
-                queue->head = selected->next;
-            }
-            if (queue->tail == selected) 
-            {
-                queue->tail = prev_selected;
-            }
-            printf("In SJF, if there is a tie, then the result is corrected.\n");
-        }
+        
         else if (strcmp(algorithm, "RR") == 0) 
         {
             selected_burst = queue->head;
@@ -364,7 +329,7 @@ burst_t* pick_from_queue(queue_t* queue, char* algorithm)
                 queue->tail = NULL;
             }
             // set the remaining time of the burst to the quantum number
-            selected_burst->remaining_time = selected_burst->burst_length;
+            selected_burst->remaining_time = -quantum;
         }
         // decrement the size of the queue
         queue->size--;
@@ -413,15 +378,13 @@ void* processor_function(void* arg)
     char* algorithm = args->algorithm;
     int q = args->q;
     int thread_id = args->thread_id;
-    queue_t* queue = (queue_t*)malloc (sizeof(args->queue));
-    queue = args->queue;
+    queue_t* queue = args->queue;
     int remaining_time;
     burst_t* current_burst;
 
     printf("Created thread with q index %d\n", args->thread_id);
     while (1) 
     {
-    	
         // Pick a process from the queue based on the scheduling algorithm
         pthread_mutex_lock(&queue->lock);
         if (queue->size == 0) 
@@ -431,8 +394,9 @@ void* processor_function(void* arg)
             usleep(1);
             continue;
         }
+        
         printf("Before Current burst selection.\n");
-        current_burst = pick_from_queue(queue, algorithm);
+        current_burst = pick_from_queue(queue, algorithm, q);
         printf("Current burst is selected.\n");
         pthread_mutex_unlock(&queue->lock);
         printf("Current burst is unlocked.\n");
@@ -482,12 +446,17 @@ void* processor_function(void* arg)
 
 void enqueue_burst_multi(burst_t* burst, queue_t** queue_array, int num_processors, int method) 
 {
+    if (queue_array == NULL) 
+    {
+        printf("Error: queue_array is NULL\n");
+        return;
+    }
     if (method == 1) 
     {  // round-robin method
     	printf("inside RM method \n");
         int queue_index = burst->pid % num_processors;  // select queue based on PID
-        printf("queue index selected");
-        pthread_mutex_lock(&queue_array[queue_index]->lock);
+        printf("queue index selected queue index : %d\n", queue_index);
+        //pthread_mutex_lock(&queue_array[queue_index]->lock);
         printf("enqueue multi- locked  index: %d\n", queue_index);
         if (queue_array[queue_index]->tail == NULL) 
         {
@@ -499,7 +468,7 @@ void enqueue_burst_multi(burst_t* burst, queue_t** queue_array, int num_processo
             queue_array[queue_index]->tail = burst;
         }
         queue_array[queue_index]->size++;
-        pthread_mutex_unlock(&queue_array[queue_index]->lock);
+        //pthread_mutex_unlock(&queue_array[queue_index]->lock);
         printf("enqueue multi- unlocked  index: %d\n", queue_index);
     } 
     else 
@@ -635,7 +604,7 @@ int main(int argc, char* argv[])
     	printf("method no: %d \n", method);
     	fflush(stdout);
 
-    	queue_t* ready_queue = (queue_t*)malloc(sizeof(queue_t));
+    	queue_t* ready_queue;
     	queue_t* ready_queues[processor_number];
     	finish_list =(finish_list_t*)malloc(sizeof(finish_list_t));
     	finish_list_init(finish_list);
@@ -734,28 +703,28 @@ int main(int argc, char* argv[])
                 	}	
 			printf("checkpoint 8- burst is enqueued \n");
 			printf("checkpoint 9 - unlocked \n");
-			}
-			else if (strncmp(line, "IAT", 3) == 0) 
-    			{ 
-    				// an interarrival time
-        			// Parse the interarrival time from the line
-        			int interarrival_time = atoi(line + 4);
-        			printf("IAT: %d\n",interarrival_time);
-            			fflush(stdout);
-        			printf("checkpoint 10 - inside IAT before sleeping \n");
+		}
+		else if (strncmp(line, "IAT", 3) == 0) 
+    		{ 
+    			// an interarrival time
+        		// Parse the interarrival time from the line
+        		int interarrival_time = atoi(line + 4);
+        		printf("IAT: %d\n",interarrival_time);
+            		fflush(stdout);
+        		printf("checkpoint 10 - inside IAT before sleeping \n");
         	
-        			// Sleep for the interarrival time
-        			usleep(interarrival_time*1000);
-        			printf("checkpoint 11 - inside IAT after sleeping \n");
+        		// Sleep for the interarrival time
+        		usleep(interarrival_time*1000);
+        		printf("checkpoint 11 - inside IAT after sleeping \n");
         	
-        			//timestamp += interarrival_time;
-        			printf("checkpoint 12 - inside IAT timestamp updated \n");
-    			}
-		} 
+        		//timestamp += interarrival_time;
+        		printf("checkpoint 12 - inside IAT timestamp updated \n");
+    		}
+	} 
 	
 	
-		// Close the input file
-    		fclose(input_file); 
+	// Close the input file
+    	fclose(input_file); 
     	
     	// Add dummy bursts to each queue
     	if(strcmp(sch_approach, "S")==0)
@@ -797,3 +766,4 @@ int main(int argc, char* argv[])
         	}
     }
 }
+
