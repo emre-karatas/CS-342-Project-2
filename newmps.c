@@ -353,15 +353,18 @@ burst_t* pick_from_queue(queue_t* queue, char* algorithm) {
     return selected_burst;
 }
 void enqueue_burst(burst_t* burst, queue_t* queue) {
-    int lock_result = pthread_mutex_trylock(&queue->lock);
-    if (lock_result == EBUSY) {
-        // The lock is currently held by another thread, so skip this enqueue operation for now.
-        // You can choose to retry the operation later, or just discard the burst.
-        return;
-    } else if (lock_result != 0) {
-        // An error occurred while trying to obtain the lock, handle it as appropriate
-        return;
-    }
+    int lock_result;
+    do {
+        lock_result = pthread_mutex_trylock(&queue->lock);
+        if (lock_result == EBUSY) {
+            printf("WAITING FOR THE LOCK");
+            // The lock is currently held by another thread, so sleep for a short time and try again.
+            usleep(1000);
+        } else if (lock_result != 0) {
+            // An error occurred while trying to obtain the lock, handle it as appropriate
+            return;
+        }
+    } while (lock_result == EBUSY);
 
     if (queue->tail == NULL) {
         queue->head = queue->tail = burst;
@@ -369,7 +372,7 @@ void enqueue_burst(burst_t* burst, queue_t* queue) {
         queue->tail->next = burst;
         queue->tail = burst;
     }
-	num_bursts_inqueue++;
+    num_bursts_inqueue++;
     queue->size++;
 
     pthread_mutex_unlock(&queue->lock);
@@ -386,7 +389,7 @@ void* processor_function(void* arg) {
 
     while (1) {
         // Pick a process from the queue based on the scheduling algorithm
-        pthread_mutex_lock(&queue->lock);
+        //pthread_mutex_lock(&queue->lock);
         if (queue->size == 0) {
             // Sleep for 1 ms if the queue is empty
             pthread_mutex_unlock(&queue->lock);
@@ -394,7 +397,7 @@ void* processor_function(void* arg) {
             continue;
         }
         current_burst = pick_from_queue(queue, algorithm);
-        pthread_mutex_unlock(&queue->lock);
+        //pthread_mutex_unlock(&queue->lock);
 
         if (current_burst->pid == -1) {
             // This is a dummy burst indicating end of simulation
@@ -410,7 +413,7 @@ void* processor_function(void* arg) {
         usleep(remaining_time * 1000);
 
         // Update the remaining time and put it back into the queue
-        pthread_mutex_lock(&queue->lock);
+        //pthread_mutex_lock(&queue->lock);
         current_burst->remaining_time -= remaining_time;
         if (current_burst->remaining_time <= 0) {
             // Burst is finished
@@ -422,7 +425,7 @@ void* processor_function(void* arg) {
             // Burst is not finished, put it back into the queue
             enqueue_burst(current_burst,queue);
         }
-        pthread_mutex_unlock(&queue->lock);
+        //pthread_mutex_unlock(&queue->lock);
     }
 
     // Thread has finished its work
