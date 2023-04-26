@@ -6,6 +6,7 @@
 #include <sys/time.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <errno.h>
 #include <time.h>
 
 #define MAX_BUF_SIZE 256
@@ -346,14 +347,21 @@ burst_t* pick_from_queue(queue_t* queue, char* algorithm) {
 
     // if no process is picked, sleep for 1 ms and try again
     if (selected_burst == NULL) {
-        usleep(1000);
+        usleep(1);
     }
 
     return selected_burst;
 }
-
 void enqueue_burst(burst_t* burst, queue_t* queue) {
-    pthread_mutex_lock(&queue->lock);
+    int lock_result = pthread_mutex_trylock(&queue->lock);
+    if (lock_result == EBUSY) {
+        // The lock is currently held by another thread, so skip this enqueue operation for now.
+        // You can choose to retry the operation later, or just discard the burst.
+        return;
+    } else if (lock_result != 0) {
+        // An error occurred while trying to obtain the lock, handle it as appropriate
+        return;
+    }
 
     if (queue->tail == NULL) {
         queue->head = queue->tail = burst;
@@ -363,9 +371,9 @@ void enqueue_burst(burst_t* burst, queue_t* queue) {
     }
 	num_bursts_inqueue++;
     queue->size++;
+
     pthread_mutex_unlock(&queue->lock);
 }
-
 
 void* processor_function(void* arg) {
     struct thread_args* args = (struct thread_args*) arg;
@@ -622,59 +630,59 @@ int main(int argc, char* argv[])
 	// Process the bursts sequentially
 	while (fgets(line, sizeof(line), input_file)) 
 	{
-    		if (strncmp(line, "PL", 2) == 0) 
-    		{ 
-    			printf("checkpoint 4- PL Reading \n");
-    			// a new burst
-       			// Parse the burst length from the line
-        		int burst_length = atoi(line + 3);
-        
-        		printf("Burst length: %d \n",burst_length);
-                fflush(stdout);
-                
-                // Create a new burst item and fill in its fields
-                burst_t* burst = malloc(sizeof(burst_t));
-                burst->pid = ++last_pid;
-                printf("burst id: %d \n",burst-> pid);
-                burst->burst_length = burst_length;
-                gettimeofday(&current_time,NULL);
-                timestamp += (current_time.tv_sec - start_time.tv_sec)*1000 + (current_time.tv_usec- start_time.tv_usec)/1000;
-                burst->arrival_time = timestamp;
-                printf("arrival time: %d \n",burst->arrival_time);
+        if (strncmp(line, "PL", 2) == 0) 
+        { 
+            printf("checkpoint 4- PL Reading \n");
+            // a new burst
+            // Parse the burst length from the line
+            int burst_length = atoi(line + 3);
+    
+            printf("Burst length: %d \n",burst_length);
+            fflush(stdout);
+            
+            // Create a new burst item and fill in its fields
+            burst_t* burst = malloc(sizeof(burst_t));
+            burst->pid = ++last_pid;
+            printf("burst id: %d \n",burst-> pid);
+            burst->burst_length = burst_length;
+            gettimeofday(&current_time,NULL);
+            timestamp += (current_time.tv_sec - start_time.tv_sec)*1000 + (current_time.tv_usec- start_time.tv_usec)/1000;
+            burst->arrival_time = timestamp;
+            printf("arrival time: %d \n",burst->arrival_time);
 
-                burst->remaining_time = burst_length;
-                burst->finish_time = 0;
-                burst->turnaround_time = 0;
-                burst->processor_id = 0;
-        
+            burst->remaining_time = burst_length;
+            burst->finish_time = 0;
+            burst->turnaround_time = 0;
+            burst->processor_id = 0;
+    
 
-        		if (strcmp(sch_approach, "S") == 0) 
-    			{
-                    enqueue_burst(burst, ready_queue);
-    			}
-                else{
-                    enqueue_burst_multi(burst, ready_queues, processor_number,method);
-                }
+            if (strcmp(sch_approach, "S") == 0) 
+            {
+                enqueue_burst(burst, ready_queue);
+            }
+            else{
+                enqueue_burst_multi(burst, ready_queues, processor_number,method);
+            }
         		
 			printf("checkpoint 8- burst is enqueued \n");
 			printf("checkpoint 9 - unlocked \n");
 		}
 		else if (strncmp(line, "IAT", 3) == 0) 
-    		{ 
-    			// an interarrival time
-        		// Parse the interarrival time from the line
-        		int interarrival_time = atoi(line + 4);
-        		printf("IAT: %d\n",interarrival_time);
-            	fflush(stdout);
-        		printf("checkpoint 10 - inside IAT before sleeping \n");
-        
-        		// Sleep for the interarrival time
-        		usleep(interarrival_time*1000);
-        		printf("checkpoint 11 - inside IAT after sleeping \n");
-        
-        		//timestamp += interarrival_time;
-        		printf("checkpoint 12 - inside IAT timestamp updated \n");
-    		}
+        { 
+            // an interarrival time
+            // Parse the interarrival time from the line
+            int interarrival_time = atoi(line + 4);
+            printf("IAT: %d\n",interarrival_time);
+            fflush(stdout);
+            printf("checkpoint 10 - inside IAT before sleeping \n");
+    
+            // Sleep for the interarrival time
+            usleep(interarrival_time*1000);
+            printf("checkpoint 11 - inside IAT after sleeping \n");
+    
+            //timestamp += interarrival_time;
+            printf("checkpoint 12 - inside IAT timestamp updated \n");
+        }
 	} 
 	
 	
