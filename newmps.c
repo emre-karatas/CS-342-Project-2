@@ -465,7 +465,7 @@ burst_t* pick_from_queue(queue_t* queue, char* algorithm) {
 
         // if no process is picked, sleep for 1 ms and try again
         if (selected_burst == NULL) {
-            usleep(1000);
+            usleep(1);
         }
     }
     printf("\n XXXX     %d\n", selected_burst->pid);
@@ -475,7 +475,7 @@ burst_t* pick_from_queue(queue_t* queue, char* algorithm) {
 
 
 
-void enqueue_burst(burst_t* burst, queue_t* queue) {
+/*void enqueue_burst(burst_t* burst, queue_t* queue) {
     int lock_result;
     do {
         lock_result = pthread_mutex_trylock(&queue->lock);
@@ -499,7 +499,23 @@ void enqueue_burst(burst_t* burst, queue_t* queue) {
     queue->size++;
 
     pthread_mutex_unlock(&queue->lock);
+}*/
+
+void enqueue_burst(burst_t* burst, queue_t* queue) {
+    pthread_mutex_lock(&queue->lock);
+
+    if (queue->tail == NULL) {
+        queue->head = queue->tail = burst;
+    } else {
+        queue->tail->next = burst;
+        queue->tail = burst;
+    }
+    num_bursts_inqueue++;
+    queue->size++;
+
+    pthread_mutex_unlock(&queue->lock);
 }
+
 
 void* processor_function(void* arg) {
     struct thread_args* args = (struct thread_args*) arg;
@@ -525,7 +541,7 @@ void* processor_function(void* arg) {
         printf("\n !!! BURST ID%d !!! \n", current_burst->pid);
         //pthread_mutex_unlock(&queue->lock);
 
-        if (current_burst->pid == -1  && queue->size == 0 ) {
+        if (current_burst->pid == -1) {
             // This is a dummy burst indicating end of simulation
             end_of_simulation=1;
             break;
