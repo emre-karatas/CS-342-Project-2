@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <time.h>
 #include <limits.h>
+#include <math.h>
 
 #define MAX_BUF_SIZE 256
 #define MAX_NUM_PROCESSORS 10
@@ -61,6 +62,30 @@ void finish_list_init(finish_list_t* list) {
     list->tail = NULL;
     pthread_mutex_init(&list->lock, NULL);
     list->size = 0;
+}
+
+// Function to generate a random integer between min and max, rounded to the nearest integer
+long int generateRandomInt(long int min, long int max, long int mean) 
+{
+    if (min < 0 || max < 0 || mean < 1 || mean > max || min > max) {
+        printf("Error: Invalid input values.\n");
+        return -1;
+    }
+    double lambda = 1.0 / (double)mean;
+    double u, x;
+    long int a;
+
+    do {
+        // Generate exponential random value x
+        u = (double)rand() / RAND_MAX;
+        x = -log(1 - u) / lambda;
+
+        // Round x to an integer
+        a = (long int)round(x);
+
+    } while (a < min || a > max);
+
+    return a;
 }
 
 
@@ -612,7 +637,7 @@ int main(int argc, char* argv[])
 
 	
 	// Burst will be generated random if random > 0, read file if random == 0
-    	int random = 1;
+    	int random = 0;
 
     	// Random variables
     	int iat_mean = 200;
@@ -746,7 +771,60 @@ int main(int argc, char* argv[])
         }
 
     }
+    printf("random: %d\n", random );
+    if(random == 1)
+    {
+    	// Seed the random number generator
+    	srand(time(NULL));
+    	// Generate random interarrival times and burst lengths
+    	for (int i = 0; i < pc; i++) 
+    	{
+        	// Generate random interarrival time
+        	long int interarrival_time = generateRandomInt(iat_min,iat_max,iat_mean);
+	
+        	// Generate random burst length
+        	long int burst_length = generateRandomInt(burst_min,burst_max,burst_mean);
+	
+        	printf("Burst %d: Interarrival Time = %ld ms, Burst Length = %ld ms\n", i+1, interarrival_time, burst_length);
+        	
+        	// Create a new burst item and fill in its fields
+            burst_t* burst = malloc(sizeof(burst_t));
+            burst->pid = ++last_pid;
+            printf("burst id: %d \n",burst-> pid);
+            burst->burst_length = burst_length;
+            gettimeofday(&current_time,NULL);
+            timestamp = (current_time.tv_sec - start_time.tv_sec)*1000 + (current_time.tv_usec- start_time.tv_usec)/1000;
+            burst->arrival_time = timestamp;
+            printf("arrival time: %d \n",burst->arrival_time);
+
+            burst->remaining_time = burst_length;
+            burst->finish_time = 0;
+            burst->turnaround_time = 0;
+            burst->processor_id = 0;
     
+
+            if (strcmp(sch_approach, "S") == 0) 
+            {
+                enqueue_burst(burst, ready_queue);
+            }
+            else{
+            	printf("before adding enqueue_burst \n");
+                enqueue_burst_multi(burst, ready_queues, processor_number,method);
+            }
+            printf("IAT: %ld\n",interarrival_time);
+            fflush(stdout);
+            printf("checkpoint 10 - inside IAT before sleeping \n");
+    
+            // Sleep for the interarrival time
+            usleep(interarrival_time*1000);
+            printf("checkpoint 11 - inside IAT after sleeping \n");
+    
+            //timestamp += interarrival_time;
+            printf("checkpoint 12 - inside IAT timestamp updated \n");
+    	}
+    }
+    else
+    {
 
 	
 	// Open input file and initialize variables
@@ -813,11 +891,15 @@ int main(int argc, char* argv[])
             //timestamp += interarrival_time;
             printf("checkpoint 12 - inside IAT timestamp updated \n");
         }
-	} 
+	}
+	// Close the input file
+    	fclose(input_file); 
+	
+    } 
 	
 	
 	// Close the input file
-    fclose(input_file); 
+    //fclose(input_file); 
 
     //display ready queues
     //if(strcmp(sch_approach, "S")==0){
