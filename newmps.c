@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <time.h>
+#include <limits.h>
 
 #define MAX_BUF_SIZE 256
 #define MAX_NUM_PROCESSORS 10
@@ -33,6 +34,7 @@ typedef struct queue_t {
     burst_t* tail;
     pthread_mutex_t lock;
     int size;
+    int end_simulation;
 } queue_t;
 
 struct thread_args {
@@ -94,6 +96,7 @@ void push_to_finish_list(finish_list_t* finish_list, burst_t* burst) {
 void queue_init(queue_t* queue){
     queue-> head = NULL;
     queue-> tail = NULL;
+    queue->end_simulation = 0;
     pthread_mutex_init(&queue->lock, NULL);
 }
 
@@ -176,56 +179,6 @@ burst_t* get_burst_by_pid(burst_t* head, int pid)
     }
     return NULL;
 }
-
-oid enqueue_burst_multi(burst_t* burst, queue_t** queue_array, int num_processors, int method) 
-{
-    int lock_result;
-    int target_queue_index;
-
-    if (method == 1) 
-    {  // round-robin method
-        target_queue_index = burst->pid % num_processors;  // select queue based on PID
-    } 
-    else 
-    {  // load-balancing method
-        target_queue_index = 0;
-        int smallest_queue_size = queue_array[0]->size;
-        for (int i = 1; i < num_processors; i++) {  // find queue with smallest size
-            if (queue_array[i]->size < smallest_queue_size) {
-                target_queue_index = i;
-                smallest_queue_size = queue_array[i]->size;
-            }
-        }
-    }
-
-    do {
-        lock_result = pthread_mutex_trylock(&queue_array[target_queue_index]->lock);
-        if (lock_result == EBUSY) {
-            printf("WAITING FOR THE LOCK\n");
-            // The lock is currently held by another thread, so sleep for a short time and try again.
-            usleep(1000);
-        } else if (lock_result != 0) {
-            // An error occurred while trying to obtain the lock, handle it as appropriate
-            return;
-        }
-    } while (lock_result == EBUSY);
-
-    if (queue_array[target_queue_index]->tail == NULL) 
-    {
-    	printf("error checking 1");
-        queue_array[target_queue_index]->head = queue_array[target_queue_index]->tail = burst;
-    } 
-    else 
-    {
-    	printf("error checking 2");
-        queue_array[target_queue_index]->tail->next = burst;
-        queue_array[target_queue_index]->tail = burst;
-    }
-    queue_array[target_queue_index]->size++;
-
-    pthread_mutex_unlock(&queue_array[target_queue_index]->lock);
-}
-
 
 void remove_burst_from_queue(queue_t* queue, burst_t* burst) 
 {
@@ -329,6 +282,69 @@ int num_bursts_inqueue;
 time_t timestamp;
 int end_of_simulation=0;
 
+void enqueue_burst_multi(burst_t* burst, queue_t** queue_array, int num_processors, int method) 
+{
+    if (queue_array == NULL) {
+        fprintf(stderr, "enqueue_burst_multi: queue_array is NULL\n");
+        return;
+    }
+
+    int lock_result;
+    int target_queue_index;
+
+    if (method == 1) 
+    {  // round-robin method
+        target_queue_index = burst->pid % num_processors;  // select queue based on PID
+    } 
+    else 
+    {  // load-balancing method
+        target_queue_index = 0;
+        int smallest_queue_size = INT_MAX;
+        for (int i = 0; i < num_processors; i++) {  // find queue with smallest size
+            if (queue_array[i] == NULL) {
+                fprintf(stderr, "enqueue_burst_multi: queue_array[%d] is NULL\n", i);
+                continue;
+            }
+            if (queue_array[i]->size < smallest_queue_size) {
+                target_queue_index = i;
+                smallest_queue_size = queue_array[i]->size;
+            }
+        }
+    }
+
+    do {
+        lock_result = pthread_mutex_trylock(&queue_array[target_queue_index]->lock);
+        if (lock_result == EBUSY) {
+            // The lock is currently held by another thread, so sleep for a short time and try again.
+            usleep(1000);
+        } else if (lock_result != 0) {
+            // An error occurred while trying to obtain the lock, handle it as appropriate
+            fprintf(stderr, "enqueue_burst_multi: Failed to obtain lock for queue %d, error code: %d\n", target_queue_index, lock_result);
+            return;
+        }
+    } while (lock_result == EBUSY);
+
+    if (queue_array[target_queue_index] == NULL) {
+        fprintf(stderr, "enqueue_burst_multi: queue_array[%d] is NULL\n", target_queue_index);
+        pthread_mutex_unlock(&queue_array[target_queue_index]->lock);
+        return;
+    }
+
+    if (queue_array[target_queue_index]->tail == NULL) 
+    {
+        queue_array[target_queue_index]->head = queue_array[target_queue_index]->tail = burst;
+    } 
+    else 
+    {
+        queue_array[target_queue_index]->tail->next = burst;
+        queue_array[target_queue_index]->tail = burst;
+    }
+    queue_array[target_queue_index]->size++;
+
+    pthread_mutex_unlock(&queue_array[target_queue_index]->lock);
+}
+
+
 void displayFinishList(finish_list_t* root) 
 {
     if (root == NULL || root->head == NULL) 
@@ -383,25 +399,33 @@ void displayList(queue_t* root)
 
 burst_t* pick_from_queue(queue_t* queue, char* algorithm) {
     burst_t* selected_burst = NULL;
-    while (selected_burst == NULL) { // loop until a process is picked
+    while (selected_burst == NULL) 
+    { // loop until a process is picked
         pthread_mutex_lock(&queue->lock); // lock the queue
 
-        if (queue->size >= 0) {
+        if (queue->size >= 0) 
+        {
             // pick a process from the queue based on the scheduling algorithm
-            if (strcmp(algorithm, "FCFS") == 0) {
+            if (strcmp(algorithm, "FCFS") == 0) 
+            {
                 selected_burst = queue->head;
                 queue->head = selected_burst->next;
-                if (queue->head == NULL) {
+                if (queue->head == NULL) 
+                {
                     queue->tail = NULL;
                 }
-            } else if (strcmp(algorithm, "SJF") == 0) {
+            } 
+            else if (strcmp(algorithm, "SJF") == 0) 
+            {
                 // if there is a tie, the item closer to head is picked
                 burst_t* curr = queue->head;
                 burst_t* prev = NULL;
                 burst_t* prev_selected = NULL;
                 burst_t* selected = curr;
-                while (curr != NULL) {
-                    if (curr->burst_length < selected->burst_length) {
+                while (curr != NULL) 
+                {
+                    if (curr->burst_length < selected->burst_length) 
+                    {
                         selected = curr;
                         prev_selected = prev;
                     }
@@ -409,18 +433,25 @@ burst_t* pick_from_queue(queue_t* queue, char* algorithm) {
                     curr = curr->next;
                 }
                 selected_burst = selected;
-                if (prev_selected != NULL) {
+                if (prev_selected != NULL) 
+                {
                     prev_selected->next = selected->next;
-                } else {
+                } 
+                else 
+                {
                     queue->head = selected->next;
                 }
-                if (queue->tail == selected) {
+                if (queue->tail == selected) 
+                {
                     queue->tail = prev_selected;
                 }
-            } else if (strcmp(algorithm, "RR") == 0) {
+            } 
+            else if (strcmp(algorithm, "RR") == 0) 
+            {
                 selected_burst = queue->head;
                 queue->head = selected_burst->next;
-                if (queue->head == NULL) {
+                if (queue->head == NULL) 
+                {
                     queue->tail = NULL;
                 }
                 // set the remaining time of the burst to the quantum number
@@ -434,18 +465,22 @@ burst_t* pick_from_queue(queue_t* queue, char* algorithm) {
 
         // if no process is picked, sleep for 1 ms and try again
         if (selected_burst == NULL) {
-            usleep(1);
+            usleep(1000);
         }
     }
     printf("\n XXXX     %d\n", selected_burst->pid);
     return selected_burst;
+    
 }
+
+
+
 void enqueue_burst(burst_t* burst, queue_t* queue) {
     int lock_result;
     do {
         lock_result = pthread_mutex_trylock(&queue->lock);
         if (lock_result == EBUSY) {
-            printf("WAITING FOR THE LOCK");
+            printf("WAITING FOR THE LOCK!!!!!\n");
             // The lock is currently held by another thread, so sleep for a short time and try again.
             usleep(1000);
         } else if (lock_result != 0) {
@@ -475,10 +510,12 @@ void* processor_function(void* arg) {
     int remaining_time;
     burst_t* current_burst;
 
-    while (end_of_simulation==0) {
+    while (end_of_simulation==0 ) {
         // Pick a process from the queue based on the scheduling algorithm
         //pthread_mutex_lock(&queue->lock);
-        if (queue->size == 0) {
+        //printf("end of simulation: %d\n",end_of_simulation);
+        if (queue->size == 0) 
+        {
             // Sleep for 1 ms if the queue is empty
             //pthread_mutex_unlock(&queue->lock);
             usleep(1000);
@@ -488,7 +525,7 @@ void* processor_function(void* arg) {
         printf("\n !!! BURST ID%d !!! \n", current_burst->pid);
         //pthread_mutex_unlock(&queue->lock);
 
-        if (current_burst->pid == -1) {
+        if (current_burst->pid == -1  && queue->size == 0 ) {
             // This is a dummy burst indicating end of simulation
             end_of_simulation=1;
             break;
@@ -500,7 +537,7 @@ void* processor_function(void* arg) {
             // For RR, if remaining time is greater than quantum, set remaining time to quantum
             remaining_time = q;
         }
-        printf("%d", remaining_time);
+        printf("remaining time: %d", remaining_time);
         usleep(remaining_time * 1000);
 
         // Update the remaining time and put it back into the queue
@@ -529,41 +566,6 @@ void* processor_function(void* arg) {
 
 
 
-
-
-
-void enqueue_burst_multi(burst_t* burst, queue_t** queue_array, int num_processors, int method) {
-    if (method == 1) {  // round-robin method
-        int queue_index = burst->pid % num_processors;  // select queue based on PID
-        pthread_mutex_lock(&queue_array[queue_index]->lock);
-        if (queue_array[queue_index]->tail == NULL) {
-            queue_array[queue_index]->head = queue_array[queue_index]->tail = burst;
-        } else {
-            queue_array[queue_index]->tail->next = burst;
-            queue_array[queue_index]->tail = burst;
-        }
-        queue_array[queue_index]->size++;
-        pthread_mutex_unlock(&queue_array[queue_index]->lock);
-    } else {  // load-balancing method
-        int smallest_queue_index = 0;
-        int smallest_queue_size = queue_array[0]->size;
-        for (int i = 1; i < num_processors; i++) {  // find queue with smallest size
-            if (queue_array[i]->size < smallest_queue_size) {
-                smallest_queue_index = i;
-                smallest_queue_size = queue_array[i]->size;
-            }
-        }
-        pthread_mutex_lock(&queue_array[smallest_queue_index]->lock);
-        if (queue_array[smallest_queue_index]->tail == NULL) {
-            queue_array[smallest_queue_index]->head = queue_array[smallest_queue_index]->tail = burst;
-        } else {
-            queue_array[smallest_queue_index]->tail->next = burst;
-            queue_array[smallest_queue_index]->tail = burst;
-        }
-        queue_array[smallest_queue_index]->size++;
-        pthread_mutex_unlock(&queue_array[smallest_queue_index]->lock);
-    }
-}
 
 
 /* Function to simulate a CPU burst */
@@ -681,19 +683,30 @@ int main(int argc, char* argv[])
     if(strcmp(sch_approach, "S")==0){
         queue_init(ready_queue);
     }
-    else{
+    //else{
         //use *multi_queues to access the array, and 
         //(*multi_queues)[i] to access the i-th queue in the array.
-        multi_queues_init(ready_queues, processor_number);
+        //multi_queues_init(ready_queues, processor_number);
+    //}
+    for (int i = 0; i < processor_number; i++) 
+    {
+    	ready_queues[i] = (queue_t*) malloc(sizeof(queue_t));
+    	ready_queues[i]->size = 0;
+    	ready_queues[i]->head = NULL;
+    	ready_queues[i]->tail = NULL;
+    	pthread_mutex_init(&ready_queues[i]->lock, NULL);
     }
+
 
 	printf("checkpoint 1- initialized ready queues\n");
 
 	// Create processor threads
     pthread_t threads[processor_number];
    
-    if(strcmp(sch_approach, "S")==0){
-        for (int i = 0; i < processor_number; i++) {
+    if(strcmp(sch_approach, "S")==0)
+    {
+        for (int i = 0; i < processor_number; i++) 
+        {
             struct thread_args* args = (struct thread_args*) malloc(sizeof(struct thread_args));
             args->algorithm = algorithm;
             args->q = quantum_number;
@@ -703,9 +716,11 @@ int main(int argc, char* argv[])
         }
 
     }
-    else{
-        pthread_t threads[processor_number];
-        for (int i = 0; i < processor_number; i++) {
+    else
+    {
+         pthread_t threads[processor_number];
+        for (int i = 0; i < processor_number; i++) 
+        {
             struct thread_args* args = (struct thread_args*) malloc(sizeof(struct thread_args));
             args->algorithm = algorithm;
             args->q = quantum_number;
@@ -759,6 +774,7 @@ int main(int argc, char* argv[])
                 enqueue_burst(burst, ready_queue);
             }
             else{
+            	printf("before adding enqueue_burst \n");
                 enqueue_burst_multi(burst, ready_queues, processor_number,method);
             }
         		
