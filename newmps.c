@@ -177,6 +177,56 @@ burst_t* get_burst_by_pid(burst_t* head, int pid)
     return NULL;
 }
 
+oid enqueue_burst_multi(burst_t* burst, queue_t** queue_array, int num_processors, int method) 
+{
+    int lock_result;
+    int target_queue_index;
+
+    if (method == 1) 
+    {  // round-robin method
+        target_queue_index = burst->pid % num_processors;  // select queue based on PID
+    } 
+    else 
+    {  // load-balancing method
+        target_queue_index = 0;
+        int smallest_queue_size = queue_array[0]->size;
+        for (int i = 1; i < num_processors; i++) {  // find queue with smallest size
+            if (queue_array[i]->size < smallest_queue_size) {
+                target_queue_index = i;
+                smallest_queue_size = queue_array[i]->size;
+            }
+        }
+    }
+
+    do {
+        lock_result = pthread_mutex_trylock(&queue_array[target_queue_index]->lock);
+        if (lock_result == EBUSY) {
+            printf("WAITING FOR THE LOCK\n");
+            // The lock is currently held by another thread, so sleep for a short time and try again.
+            usleep(1000);
+        } else if (lock_result != 0) {
+            // An error occurred while trying to obtain the lock, handle it as appropriate
+            return;
+        }
+    } while (lock_result == EBUSY);
+
+    if (queue_array[target_queue_index]->tail == NULL) 
+    {
+    	printf("error checking 1");
+        queue_array[target_queue_index]->head = queue_array[target_queue_index]->tail = burst;
+    } 
+    else 
+    {
+    	printf("error checking 2");
+        queue_array[target_queue_index]->tail->next = burst;
+        queue_array[target_queue_index]->tail = burst;
+    }
+    queue_array[target_queue_index]->size++;
+
+    pthread_mutex_unlock(&queue_array[target_queue_index]->lock);
+}
+
+
 void remove_burst_from_queue(queue_t* queue, burst_t* burst) 
 {
     pthread_mutex_lock(&queue->lock);  // Acquire the lock
