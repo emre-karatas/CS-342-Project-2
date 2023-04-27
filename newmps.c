@@ -277,6 +277,7 @@ int curr_pid =0;
 int last_pid=0;
 int num_bursts_inqueue;
 time_t timestamp;
+int end_of_simulation=0;
 
 void displayFinishList(finish_list_t* root) 
 {
@@ -424,7 +425,7 @@ void* processor_function(void* arg) {
     int remaining_time;
     burst_t* current_burst;
 
-    while (1) {
+    while (end_of_simulation==0) {
         // Pick a process from the queue based on the scheduling algorithm
         //pthread_mutex_lock(&queue->lock);
         if (queue->size == 0) {
@@ -439,6 +440,7 @@ void* processor_function(void* arg) {
 
         if (current_burst->pid == -1) {
             // This is a dummy burst indicating end of simulation
+            end_of_simulation=1;
             break;
         }
 
