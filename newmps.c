@@ -330,7 +330,7 @@ void displayList(queue_t* root)
     }
 }
 
-burst_t* pick_from_queue(queue_t* queue, char* algorithm) {
+burst_t* pick_from_queue(queue_t* queue, char* algorithm, int q) {
     pthread_mutex_lock(&queue->lock); // lock the queue
 
     burst_t* selected_burst = NULL;
@@ -373,7 +373,7 @@ burst_t* pick_from_queue(queue_t* queue, char* algorithm) {
                 queue->tail = NULL;
             }
             // set the remaining time of the burst to the quantum number
-            selected_burst->remaining_time = selected_burst->burst_length;
+            selected_burst->remaining_time = selected_burst->remaining_time - q;
         }
         // decrement the size of the queue
         queue->size--;
@@ -432,8 +432,8 @@ void* processor_function(void* arg) {
             usleep(1000);
             continue;
         }
-        current_burst = pick_from_queue(queue, algorithm);
-        printf("BURST ID%d", current_burst->pid);
+        current_burst = pick_from_queue(queue, algorithm, q);
+        printf("BURST ID %d", current_burst->pid);
         //pthread_mutex_unlock(&queue->lock);
 
         if (current_burst->pid == -1) {
@@ -443,9 +443,9 @@ void* processor_function(void* arg) {
 
         // Simulate the running of the process by sleeping for a while
         remaining_time = current_burst->remaining_time;
-        if (strcmp(algorithm, "RR") == 0 && remaining_time > q) {
+        if (strcmp(algorithm, "RR") == 0 && remaining_time <= q) {
             // For RR, if remaining time is greater than quantum, set remaining time to quantum
-            remaining_time = q;
+           current_burst->remaining_time = q;
         }
         usleep(remaining_time * 1000);
 
@@ -459,7 +459,7 @@ void* processor_function(void* arg) {
 
             current_burst->finish_time = timestamp;
             current_burst->turnaround_time = current_burst->finish_time - current_burst->arrival_time;
-            //current_burst->waiting_time = current_burst->turnaround_time - current_burst->burst_length;
+            current_burst->remaining_time = 0;
             push_to_finish_list(finish_list, current_burst);
         } else {
             // Burst is not finished, put it back into the queue
@@ -621,6 +621,7 @@ int main(int argc, char* argv[])
     finish_list_init(finish_list);
     printf("test1");
     fflush(stdout);
+    
 
 	// Initialize ready queues
     if(strcmp(sch_approach, "S")==0){
@@ -696,7 +697,7 @@ int main(int argc, char* argv[])
             burst->remaining_time = burst_length;
             burst->finish_time = 0;
             burst->turnaround_time = 0;
-            burst->processor_id = 0;
+            burst->processor_id = pid_counter;
     
 
             if (strcmp(sch_approach, "S") == 0) 
@@ -726,6 +727,7 @@ int main(int argc, char* argv[])
             //timestamp += interarrival_time;
             printf("checkpoint 12 - inside IAT timestamp updated \n");
         }
+        pid_counter++;
 	} 
 	
 	
