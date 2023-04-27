@@ -63,7 +63,18 @@ void finish_list_init(finish_list_t* list) {
 
 
 void push_to_finish_list(finish_list_t* finish_list, burst_t* burst) {
-    pthread_mutex_lock(&finish_list->lock);
+    int lock_result;
+    do {
+        lock_result = pthread_mutex_trylock(&finish_list->lock);
+        if (lock_result == EBUSY) {
+            printf("WAIT LOCK");
+            // The lock is currently held by another thread, so sleep for a short time and try again.
+            usleep(1000);
+        } else if (lock_result != 0) {
+            // An error occurred while trying to obtain the lock, handle it as appropriate
+            return;
+        }
+    } while (lock_result == EBUSY);
 
     // Add the burst to the end of the finish list
     if (finish_list->head == NULL) {
@@ -267,6 +278,31 @@ int last_pid=0;
 int num_bursts_inqueue;
 time_t timestamp;
 
+void displayFinishList(finish_list_t* root) 
+{
+    if (root == NULL || root->head == NULL) 
+    {
+        printf("Queue is empty.\n");
+    }
+    else 
+    {
+        burst_t* current = root->head;
+
+        while (current != NULL) 
+        {
+            printf("----------------\n");
+            printf("- id: %d\n", current->pid);
+            printf("- burst length: %d\n", current->burst_length);
+            printf("- arrival time: %d\n", current->arrival_time);
+            printf("- finish time: %d\n", current->finish_time);
+            printf("- waiting time: %d\n", current->finish_time - current->arrival_time - current->burst_length);
+            printf("- turnaround time: %d\n", current->finish_time - current->arrival_time);
+            current = current->next;
+        }
+        printf("----------------\n");
+        printf("\n");
+    }
+}
 
 void displayList(queue_t* root) 
 {
@@ -392,11 +428,12 @@ void* processor_function(void* arg) {
         //pthread_mutex_lock(&queue->lock);
         if (queue->size == 0) {
             // Sleep for 1 ms if the queue is empty
-            pthread_mutex_unlock(&queue->lock);
+            //pthread_mutex_unlock(&queue->lock);
             usleep(1000);
             continue;
         }
         current_burst = pick_from_queue(queue, algorithm);
+        printf("BURST ID%d", current_burst->pid);
         //pthread_mutex_unlock(&queue->lock);
 
         if (current_burst->pid == -1) {
@@ -417,7 +454,10 @@ void* processor_function(void* arg) {
         current_burst->remaining_time -= remaining_time;
         if (current_burst->remaining_time <= 0) {
             // Burst is finished
-            current_burst->finish_time = get_current_time();
+            gettimeofday(&current_time,NULL);
+            timestamp = (current_time.tv_sec - start_time.tv_sec)*1000 + (current_time.tv_usec- start_time.tv_usec)/1000;
+
+            current_burst->finish_time = timestamp;
             current_burst->turnaround_time = current_burst->finish_time - current_burst->arrival_time;
             //current_burst->waiting_time = current_burst->turnaround_time - current_burst->burst_length;
             push_to_finish_list(finish_list, current_burst);
@@ -575,7 +615,7 @@ int main(int argc, char* argv[])
     printf("%d", method);
     fflush(stdout);
 
-    queue_t* ready_queue;
+    queue_t* ready_queue= malloc(sizeof(queue_t));
     queue_t* ready_queues[processor_number];
     finish_list =(finish_list_t*)malloc(sizeof(finish_list_t));
     finish_list_init(finish_list);
@@ -691,7 +731,13 @@ int main(int argc, char* argv[])
 	
 	// Close the input file
     fclose(input_file); 
-    	
+
+    //display ready queues
+    if(strcmp(sch_approach, "S")==0){
+        displayList(ready_queue);
+    }
+    displayFinishList(finish_list);
+
     // Add dummy bursts to each queue
     if(strcmp(sch_approach, "S")==0){
         burst_t* dummy_burst = malloc(sizeof(burst_t));
