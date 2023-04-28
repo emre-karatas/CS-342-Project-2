@@ -8,8 +8,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <time.h>
-#include <limits.h>
-#include <math.h>
 
 #define MAX_BUF_SIZE 256
 #define MAX_NUM_PROCESSORS 10
@@ -35,17 +33,7 @@ typedef struct queue_t {
     burst_t* tail;
     pthread_mutex_t lock;
     int size;
-    int end_simulation;
 } queue_t;
-
-struct thread_args {
-    char* algorithm;
-    int q;
-    int thread_id;
-    queue_t* queue;
-};
-
-struct timeval start_time, current_time;
 
 
 typedef struct finish_list_t {
@@ -54,7 +42,18 @@ typedef struct finish_list_t {
     pthread_mutex_t lock;
     int size;
 } finish_list_t;
-finish_list_t* finish_list;
+
+
+
+struct thread_args {
+    char* algorithm;
+    int q;
+    int thread_id;
+    queue_t* queue;
+    finish_list_t* finish_list;
+};
+
+struct timeval start_time, current_time;
 
 
 void finish_list_init(finish_list_t* list) {
@@ -64,29 +63,7 @@ void finish_list_init(finish_list_t* list) {
     list->size = 0;
 }
 
-// Function to generate a random integer between min and max, rounded to the nearest integer
-long int generateRandomInt(long int min, long int max, long int mean) 
-{
-    if (min < 0 || max < 0 || mean < 1 || mean > max || min > max) {
-        printf("Error: Invalid input values.\n");
-        return -1;
-    }
-    double lambda = 1.0 / (double)mean;
-    double u, x;
-    long int a;
 
-    do {
-        // Generate exponential random value x
-        u = (double)rand() / RAND_MAX;
-        x = -log(1 - u) / lambda;
-
-        // Round x to an integer
-        a = (long int)round(x);
-
-    } while (a < min || a > max);
-
-    return a;
-}
 
 
 void push_to_finish_list(finish_list_t* finish_list, burst_t* burst) {
@@ -114,14 +91,15 @@ void push_to_finish_list(finish_list_t* finish_list, burst_t* burst) {
         burst->next = NULL;
     }
     printf("\n FINISH LIST %d\n", burst->pid);
-    pthread_mutex_unlock(&finish_list->lock);
-}
 
+
+    pthread_mutex_unlock(&finish_list->lock);
+    printf("unlocked");
+}
 
 void queue_init(queue_t* queue){
     queue-> head = NULL;
     queue-> tail = NULL;
-    queue->end_simulation = 0;
     pthread_mutex_init(&queue->lock, NULL);
 }
 
@@ -151,7 +129,7 @@ burst_t* find_shortest(queue_t* ready_queue)
 
     while (current_element != NULL) 
     {
-        if (min_element == NULL || current_element->remaining_time < min_element->remaining_time) 
+        if (min_element == NULL || current_element->burst_length < min_element->burst_length) 
         {
             min_element = current_element;
         }
@@ -205,42 +183,36 @@ burst_t* get_burst_by_pid(burst_t* head, int pid)
     return NULL;
 }
 
-void remove_burst_from_queue(queue_t* queue, burst_t* burst) 
-{
-    pthread_mutex_lock(&queue->lock);  // Acquire the lock
+void remove_burst_from_queue(queue_t* queue, burst_t* burst) {
+   // pthread_mutex_lock(&queue->lock); // lock the queue
 
-    if (queue->head == NULL || burst == NULL) 
-    {
-        pthread_mutex_unlock(&queue->lock);  // Release the lock if queue or burst is empty
-        return;
-    }
-
-    if (queue->head == burst) 
-    {  // If burst is the head of the queue
+    // check if the burst is the head of the queue
+    if (queue->head == burst) {
         queue->head = burst->next;
-        if (queue->tail == burst) 
-        {  // If burst is also the tail of the queue
-            queue->tail = NULL;
+    } else {
+        // find the burst in the queue
+        burst_t* curr = queue->head;
+        burst_t* prev = NULL;
+        while (curr != NULL && curr != burst) {
+            prev = curr;
+            curr = curr->next;
         }
-    } 
-    else 
-    {
-        burst_t* prev = queue->head;
-        while (prev->next != NULL && prev->next != burst) {
-            prev = prev->next;
-        }
-        if (prev->next != NULL) 
-        {
-            prev->next = burst->next;
-            if (queue->tail == burst) 
-            {  // If burst is the tail of the queue
-                queue->tail = prev;
-            }
+
+        // check if the burst was found
+        if (curr != NULL) {
+            prev->next = curr->next;
         }
     }
 
-    pthread_mutex_unlock(&queue->lock);  // Release the lock
+    // check if the burst is the tail of the queue
+    if (queue->tail == burst) {
+        queue->tail = burst->next;
+    }
+
+    queue->size--; // decrement the size of the queue
+ //   pthread_mutex_unlock(&queue->lock); // unlock the queue
 }
+
 
 int get_min_queue_index(int num_queues, queue_t** ready_queues) 
 {
@@ -307,69 +279,6 @@ int num_bursts_inqueue;
 time_t timestamp;
 int end_of_simulation=0;
 
-void enqueue_burst_multi(burst_t* burst, queue_t** queue_array, int num_processors, int method) 
-{
-    if (queue_array == NULL) {
-        fprintf(stderr, "enqueue_burst_multi: queue_array is NULL\n");
-        return;
-    }
-
-    int lock_result;
-    int target_queue_index;
-
-    if (method == 1) 
-    {  // round-robin method
-        target_queue_index = burst->pid % num_processors;  // select queue based on PID
-    } 
-    else 
-    {  // load-balancing method
-        target_queue_index = 0;
-        int smallest_queue_size = INT_MAX;
-        for (int i = 0; i < num_processors; i++) {  // find queue with smallest size
-            if (queue_array[i] == NULL) {
-                fprintf(stderr, "enqueue_burst_multi: queue_array[%d] is NULL\n", i);
-                continue;
-            }
-            if (queue_array[i]->size < smallest_queue_size) {
-                target_queue_index = i;
-                smallest_queue_size = queue_array[i]->size;
-            }
-        }
-    }
-
-    do {
-        lock_result = pthread_mutex_trylock(&queue_array[target_queue_index]->lock);
-        if (lock_result == EBUSY) {
-            // The lock is currently held by another thread, so sleep for a short time and try again.
-            usleep(1000);
-        } else if (lock_result != 0) {
-            // An error occurred while trying to obtain the lock, handle it as appropriate
-            fprintf(stderr, "enqueue_burst_multi: Failed to obtain lock for queue %d, error code: %d\n", target_queue_index, lock_result);
-            return;
-        }
-    } while (lock_result == EBUSY);
-
-    if (queue_array[target_queue_index] == NULL) {
-        fprintf(stderr, "enqueue_burst_multi: queue_array[%d] is NULL\n", target_queue_index);
-        pthread_mutex_unlock(&queue_array[target_queue_index]->lock);
-        return;
-    }
-
-    if (queue_array[target_queue_index]->tail == NULL) 
-    {
-        queue_array[target_queue_index]->head = queue_array[target_queue_index]->tail = burst;
-    } 
-    else 
-    {
-        queue_array[target_queue_index]->tail->next = burst;
-        queue_array[target_queue_index]->tail = burst;
-    }
-    queue_array[target_queue_index]->size++;
-
-    pthread_mutex_unlock(&queue_array[target_queue_index]->lock);
-}
-
-
 void displayFinishList(finish_list_t* root) 
 {
     if (root == NULL || root->head == NULL) 
@@ -422,68 +331,61 @@ void displayList(queue_t* root)
     }
 }
 
+void remove_burst(queue_t* queue, burst_t* burst_to_remove) {
+    burst_t* curr = queue->head;
+    burst_t* prev = NULL;
+
+    while (curr != NULL) {
+        if (curr == burst_to_remove) {
+            if (prev == NULL) {
+                queue->head = curr->next;
+            } else {
+                prev->next = curr->next;
+            }
+            if (curr == queue->tail) {
+                queue->tail = prev;
+            }
+            queue->size--;
+            break;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+}
+
+
 burst_t* pick_from_queue(queue_t* queue, char* algorithm) {
     burst_t* selected_burst = NULL;
-    while (selected_burst == NULL) 
-    { // loop until a process is picked
+    while (selected_burst == NULL) { // loop until a process is picked
         pthread_mutex_lock(&queue->lock); // lock the queue
 
-        if (queue->size >= 0) 
-        {
+        if (queue->size > 0) {
             // pick a process from the queue based on the scheduling algorithm
-            if (strcmp(algorithm, "FCFS") == 0) 
-            {
+            if (strcmp(algorithm, "FCFS") == 0) {
                 selected_burst = queue->head;
                 queue->head = selected_burst->next;
-                if (queue->head == NULL) 
-                {
+                if (queue->head == NULL) {
                     queue->tail = NULL;
                 }
-            } 
-            else if (strcmp(algorithm, "SJF") == 0) 
-            {
+                // decrement the size of the queue
+                queue->size--;
+            } else if (strcmp(algorithm, "SJF") == 0) {
                 // if there is a tie, the item closer to head is picked
-                burst_t* curr = queue->head;
-                burst_t* prev = NULL;
-                burst_t* prev_selected = NULL;
-                burst_t* selected = curr;
-                while (curr != NULL) 
-                {
-                    if (curr->burst_length < selected->burst_length) 
-                    {
-                        selected = curr;
-                        prev_selected = prev;
-                    }
-                    prev = curr;
-                    curr = curr->next;
-                }
-                selected_burst = selected;
-                if (prev_selected != NULL) 
-                {
-                    prev_selected->next = selected->next;
-                } 
-                else 
-                {
-                    queue->head = selected->next;
-                }
-                if (queue->tail == selected) 
-                {
-                    queue->tail = prev_selected;
-                }
-            } 
-            else if (strcmp(algorithm, "RR") == 0) 
-            {
+                selected_burst = find_shortest(queue);
+                printf("\n SHORTES %d \n", selected_burst->pid);
+                remove_burst_from_queue(queue, selected_burst);
+            } else if (strcmp(algorithm, "RR") == 0) {
                 selected_burst = queue->head;
                 queue->head = selected_burst->next;
-                if (queue->head == NULL) 
-                {
+                if (queue->head == NULL) {
                     queue->tail = NULL;
                 }
                 // set the remaining time of the burst to the quantum number
                 selected_burst->remaining_time = selected_burst->burst_length;
+                // decrement the size of the queue
+                queue->size--;
             }
-            // decrement the size of the queue
-            queue->size--;
+            
         }
 
         pthread_mutex_unlock(&queue->lock); // unlock the queue
@@ -495,17 +397,16 @@ burst_t* pick_from_queue(queue_t* queue, char* algorithm) {
     }
     printf("\n XXXX     %d\n", selected_burst->pid);
     return selected_burst;
-    
 }
 
 
 
-/*void enqueue_burst(burst_t* burst, queue_t* queue) {
+void enqueue_burst(burst_t* burst, queue_t* queue) {
     int lock_result;
     do {
         lock_result = pthread_mutex_trylock(&queue->lock);
         if (lock_result == EBUSY) {
-            printf("WAITING FOR THE LOCK!!!!!\n");
+            printf("WAITING FOR THE LOCK");
             // The lock is currently held by another thread, so sleep for a short time and try again.
             usleep(1000);
         } else if (lock_result != 0) {
@@ -524,39 +425,22 @@ burst_t* pick_from_queue(queue_t* queue, char* algorithm) {
     queue->size++;
 
     pthread_mutex_unlock(&queue->lock);
-}*/
-
-void enqueue_burst(burst_t* burst, queue_t* queue) {
-    pthread_mutex_lock(&queue->lock);
-
-    if (queue->tail == NULL) {
-        queue->head = queue->tail = burst;
-    } else {
-        queue->tail->next = burst;
-        queue->tail = burst;
-    }
-    num_bursts_inqueue++;
-    queue->size++;
-
-    pthread_mutex_unlock(&queue->lock);
 }
-
 
 void* processor_function(void* arg) {
     struct thread_args* args = (struct thread_args*) arg;
     char* algorithm = args->algorithm;
     int q = args->q;
     int thread_id = args->thread_id;
+    finish_list_t* finish_list = args->finish_list;
     queue_t* queue = args->queue;
     int remaining_time;
     burst_t* current_burst;
 
-    while (end_of_simulation==0 ) {
+    while (end_of_simulation==0) {
         // Pick a process from the queue based on the scheduling algorithm
         //pthread_mutex_lock(&queue->lock);
-        //printf("end of simulation: %d\n",end_of_simulation);
-        if (queue->size == 0) 
-        {
+        if (queue->size == 0) {
             // Sleep for 1 ms if the queue is empty
             //pthread_mutex_unlock(&queue->lock);
             usleep(1000);
@@ -566,7 +450,7 @@ void* processor_function(void* arg) {
         printf("\n !!! BURST ID%d !!! \n", current_burst->pid);
         //pthread_mutex_unlock(&queue->lock);
 
-        if (current_burst->pid == -1) {
+        if (current_burst->pid == -1 && queue->size ==0) {
             // This is a dummy burst indicating end of simulation
             end_of_simulation=1;
             break;
@@ -578,7 +462,7 @@ void* processor_function(void* arg) {
             // For RR, if remaining time is greater than quantum, set remaining time to quantum
             remaining_time = q;
         }
-        printf("remaining time: %d", remaining_time);
+        printf("%d", remaining_time);
         usleep(remaining_time * 1000);
 
         // Update the remaining time and put it back into the queue
@@ -594,6 +478,7 @@ void* processor_function(void* arg) {
             current_burst->turnaround_time = current_burst->finish_time - current_burst->arrival_time;
             //current_burst->waiting_time = current_burst->turnaround_time - current_burst->burst_length;
             push_to_finish_list(finish_list, current_burst);
+            printf("pushed");
         } else {
             // Burst is not finished, put it back into the queue
             enqueue_burst(current_burst,queue);
@@ -607,6 +492,41 @@ void* processor_function(void* arg) {
 
 
 
+
+
+
+void enqueue_burst_multi(burst_t* burst, queue_t** queue_array, int num_processors, int method) {
+    if (method == 1) {  // round-robin method
+        int queue_index = burst->pid % num_processors;  // select queue based on PID
+        pthread_mutex_lock(&queue_array[queue_index]->lock);
+        if (queue_array[queue_index]->tail == NULL) {
+            queue_array[queue_index]->head = queue_array[queue_index]->tail = burst;
+        } else {
+            queue_array[queue_index]->tail->next = burst;
+            queue_array[queue_index]->tail = burst;
+        }
+        queue_array[queue_index]->size++;
+        pthread_mutex_unlock(&queue_array[queue_index]->lock);
+    } else {  // load-balancing method
+        int smallest_queue_index = 0;
+        int smallest_queue_size = queue_array[0]->size;
+        for (int i = 1; i < num_processors; i++) {  // find queue with smallest size
+            if (queue_array[i]->size < smallest_queue_size) {
+                smallest_queue_index = i;
+                smallest_queue_size = queue_array[i]->size;
+            }
+        }
+        pthread_mutex_lock(&queue_array[smallest_queue_index]->lock);
+        if (queue_array[smallest_queue_index]->tail == NULL) {
+            queue_array[smallest_queue_index]->head = queue_array[smallest_queue_index]->tail = burst;
+        } else {
+            queue_array[smallest_queue_index]->tail->next = burst;
+            queue_array[smallest_queue_index]->tail = burst;
+        }
+        queue_array[smallest_queue_index]->size++;
+        pthread_mutex_unlock(&queue_array[smallest_queue_index]->lock);
+    }
+}
 
 
 /* Function to simulate a CPU burst */
@@ -637,7 +557,7 @@ int main(int argc, char* argv[])
 
 	
 	// Burst will be generated random if random > 0, read file if random == 0
-    	int random = 0;
+    	int random = 1;
 
     	// Random variables
     	int iat_mean = 200;
@@ -715,6 +635,8 @@ int main(int argc, char* argv[])
 
     queue_t* ready_queue= malloc(sizeof(queue_t));
     queue_t* ready_queues[processor_number];
+    finish_list_t* finish_list;
+
     finish_list =(finish_list_t*)malloc(sizeof(finish_list_t));
     finish_list_init(finish_list);
     printf("test1");
@@ -724,107 +646,43 @@ int main(int argc, char* argv[])
     if(strcmp(sch_approach, "S")==0){
         queue_init(ready_queue);
     }
-    //else{
+    else{
         //use *multi_queues to access the array, and 
         //(*multi_queues)[i] to access the i-th queue in the array.
-        //multi_queues_init(ready_queues, processor_number);
-    //}
-    for (int i = 0; i < processor_number; i++) 
-    {
-    	ready_queues[i] = (queue_t*) malloc(sizeof(queue_t));
-    	ready_queues[i]->size = 0;
-    	ready_queues[i]->head = NULL;
-    	ready_queues[i]->tail = NULL;
-    	pthread_mutex_init(&ready_queues[i]->lock, NULL);
+        multi_queues_init(ready_queues, processor_number);
     }
-
 
 	printf("checkpoint 1- initialized ready queues\n");
 
 	// Create processor threads
     pthread_t threads[processor_number];
    
-    if(strcmp(sch_approach, "S")==0)
-    {
-        for (int i = 0; i < processor_number; i++) 
-        {
+    if(strcmp(sch_approach, "S")==0){
+        for (int i = 0; i < processor_number; i++) {
             struct thread_args* args = (struct thread_args*) malloc(sizeof(struct thread_args));
             args->algorithm = algorithm;
             args->q = quantum_number;
+            args->finish_list=finish_list;
             args->thread_id = i+1;
             args->queue = ready_queue; // Add this line to pass the ready queue
             pthread_create(&threads[i], NULL, processor_function, (void*) args);
         }
 
     }
-    else
-    {
-         pthread_t threads[processor_number];
-        for (int i = 0; i < processor_number; i++) 
-        {
+    else{
+        pthread_t threads[processor_number];
+        for (int i = 0; i < processor_number; i++) {
             struct thread_args* args = (struct thread_args*) malloc(sizeof(struct thread_args));
             args->algorithm = algorithm;
             args->q = quantum_number;
+            args->finish_list=finish_list;
             args->thread_id = i+1;
             args->queue = &(*ready_queues)[i]; // Add this line to pass the ready queue
             pthread_create(&threads[i], NULL, processor_function, (void*) args);
         }
 
     }
-    printf("random: %d\n", random );
-    if(random == 1)
-    {
-    	// Seed the random number generator
-    	srand(time(NULL));
-    	// Generate random interarrival times and burst lengths
-    	for (int i = 0; i < pc; i++) 
-    	{
-        	// Generate random interarrival time
-        	long int interarrival_time = generateRandomInt(iat_min,iat_max,iat_mean);
-	
-        	// Generate random burst length
-        	long int burst_length = generateRandomInt(burst_min,burst_max,burst_mean);
-	
-        	printf("Burst %d: Interarrival Time = %ld ms, Burst Length = %ld ms\n", i+1, interarrival_time, burst_length);
-        	
-        	// Create a new burst item and fill in its fields
-            burst_t* burst = malloc(sizeof(burst_t));
-            burst->pid = ++last_pid;
-            printf("burst id: %d \n",burst-> pid);
-            burst->burst_length = burst_length;
-            gettimeofday(&current_time,NULL);
-            timestamp = (current_time.tv_sec - start_time.tv_sec)*1000 + (current_time.tv_usec- start_time.tv_usec)/1000;
-            burst->arrival_time = timestamp;
-            printf("arrival time: %d \n",burst->arrival_time);
-
-            burst->remaining_time = burst_length;
-            burst->finish_time = 0;
-            burst->turnaround_time = 0;
-            burst->processor_id = 0;
     
-
-            if (strcmp(sch_approach, "S") == 0) 
-            {
-                enqueue_burst(burst, ready_queue);
-            }
-            else{
-            	printf("before adding enqueue_burst \n");
-                enqueue_burst_multi(burst, ready_queues, processor_number,method);
-            }
-            printf("IAT: %ld\n",interarrival_time);
-            fflush(stdout);
-            printf("checkpoint 10 - inside IAT before sleeping \n");
-    
-            // Sleep for the interarrival time
-            usleep(interarrival_time*1000);
-            printf("checkpoint 11 - inside IAT after sleeping \n");
-    
-            //timestamp += interarrival_time;
-            printf("checkpoint 12 - inside IAT timestamp updated \n");
-    	}
-    }
-    else
-    {
 
 	
 	// Open input file and initialize variables
@@ -868,7 +726,6 @@ int main(int argc, char* argv[])
                 enqueue_burst(burst, ready_queue);
             }
             else{
-            	printf("before adding enqueue_burst \n");
                 enqueue_burst_multi(burst, ready_queues, processor_number,method);
             }
         		
@@ -891,15 +748,11 @@ int main(int argc, char* argv[])
             //timestamp += interarrival_time;
             printf("checkpoint 12 - inside IAT timestamp updated \n");
         }
-	}
-	// Close the input file
-    	fclose(input_file); 
-	
-    } 
+	} 
 	
 	
 	// Close the input file
-    //fclose(input_file); 
+    fclose(input_file); 
 
     //display ready queues
     //if(strcmp(sch_approach, "S")==0){
@@ -912,7 +765,7 @@ int main(int argc, char* argv[])
         burst_t* dummy_burst = malloc(sizeof(burst_t));
         dummy_burst->pid = -1;
         dummy_burst->arrival_time=-1;
-        dummy_burst->burst_length=-1;
+        dummy_burst->burst_length=1000000;
         dummy_burst->finish_time=-1;
         dummy_burst->remaining_time=-1;
         dummy_burst->turnaround_time=-1;
@@ -922,7 +775,7 @@ int main(int argc, char* argv[])
         burst_t* dummy_burst = malloc(sizeof(burst_t));
         dummy_burst->pid = -1;
         dummy_burst->arrival_time=-1;
-        dummy_burst->burst_length=-1;
+        dummy_burst->burst_length=1000000;
         dummy_burst->finish_time=-1;
         dummy_burst->remaining_time=-1;
         dummy_burst->turnaround_time=-1;
