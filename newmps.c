@@ -686,6 +686,18 @@ int main(int argc, char* argv[])
                     pc = atoi(argv[i + 7]);
     		}
 	} 
+	
+	int original_stdout;
+
+    	// Store the original stdout file descriptor
+    	original_stdout = dup(fileno(stdout));
+	
+	//BURAYI DEGISTIRMEYI UNUTMA!!!!!!! 1 OLACAK YUKLEMEDEN ONCE DUZELT
+	//to print nothing to the screen
+    	if(out_mode ==3)
+    	{
+    		 freopen("/dev/null", "w", stdout);
+    	}
 
 	// Output parsed arguments (for testing purposes)
 	printf("Num of processors = %d\n", processor_number);
@@ -696,6 +708,7 @@ int main(int argc, char* argv[])
 	printf("infile name = %s\n", infile_name);
 	printf("out mode = %d\n", out_mode);
 	printf("outfile name = %s\n", outfile_name);
+	
     
     if(strcmp(queue_sel_method, "RM") == 0){
         method = 1;
@@ -838,11 +851,6 @@ int main(int argc, char* argv[])
 	// Close the input file
     fclose(input_file); 
 
-    //display ready queues
-    //if(strcmp(sch_approach, "S")==0){
-      //  displayList(ready_queue);
-    //}
-    
 
     // Add dummy bursts to each queue
     if(strcmp(sch_approach, "S")==0){
@@ -891,11 +899,10 @@ int main(int argc, char* argv[])
     }
     else
     {
-    	//BURAYI DEGISTIRMEYI UNUTMA!!!!!!!
-    	if(out_mode ==3)
-    	{
-    		 freopen("/dev/null", "w", stdout);
-    	}
+    	// Restore the original stdout behavior
+    	fflush(stdout);
+    	dup2(original_stdout, fileno(stdout));
+    	close(original_stdout);
     	printf("%-10s %-10s %-10s %-10s %-10s %-12s %-10s\n", "pid", "cpu", "bustlen", "arv", "finish", "waitingtime", "turnaround");
     	displayFinishList(finish_list);
     }
