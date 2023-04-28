@@ -798,5 +798,6 @@ int main(int argc, char* argv[])
     		pthread_join(threads[i], NULL);
     		printf("checkpoint 15 - thread %d is joining\n",i);
 	}
+    printf("%-10s %-10s %-10s %-10s %-10s %-12s %-10s\n", "pid", "cpu", "bustlen", "arv", "finish", "waitingtime", "turnaround");
     displayFinishList(finish_list);
 }
