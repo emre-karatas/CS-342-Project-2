@@ -25,6 +25,7 @@ typedef struct burst_t {
     int remaining_time;
     int finish_time;
     int turnaround_time;
+    int waiting_time;
     int processor_id;
     struct burst_t* next;
 } burst_t;
@@ -54,7 +55,7 @@ struct thread_args {
     finish_list_t* finish_list;
 };
 
-struct timeval start_time, current_time;
+struct timeval start, burstFinishTime;
 
 
 void finish_list_init(finish_list_t* list) {
@@ -64,6 +65,12 @@ void finish_list_init(finish_list_t* list) {
     list->size = 0;
 }
 
+int timeval_diff_ms(struct timeval* t1, struct timeval* t2) {
+    int diff_sec = t2->tv_sec - t1->tv_sec;
+    int diff_usec = t2->tv_usec - t1->tv_usec;
+    int diff_us = diff_sec * 1000 + diff_usec / 1000;
+    return diff_us;
+}
 
 
 
@@ -302,7 +309,7 @@ void displayFinishList(finish_list_t* root)
         {
             turnAroundSum += current->finish_time - current->arrival_time;
             processCount++;
-            printf("%-10d %-10d %-10d %-10d %-10d %-12d %-10d\n", current->pid, current->processor_id, current->burst_length, current->arrival_time, current->finish_time, current->finish_time - current->arrival_time - current->burst_length, current->finish_time - current->arrival_time);
+            printf("%-10d %-10d %-10d %-10d %-10d %-12d %-10d\n", current->pid, current->processor_id, current->burst_length, current->arrival_time, current->finish_time, current->waiting_time, current->finish_time - current->arrival_time);
             //printf("----------------\n");
             //printf("- id: %d\n", current->pid);
             //printf("- burst length: %d\n", current->burst_length);
@@ -316,6 +323,40 @@ void displayFinishList(finish_list_t* root)
         //printf("----------------\n");
         //printf("\n");
         printf("average turnaround time: %d ms\n", turnAroundSum / processCount);
+    }
+}
+
+void displayFinishListToFile(finish_list_t* root, FILE* out) 
+{
+    if (root == NULL || root->head == NULL) 
+    {
+        fprintf(out,"Queue is empty.\n");
+    }
+    else 
+    {
+        burst_t* current = root->head;
+        int turnAroundSum = 0;
+        int processCount = 0;
+        fprintf(out,"%-10s %-10s %-10s %-10s %-10s %-12s %-10s\n", "pid", "cpu", "bustlen", "arv", "finish", "waitingtime", "turnaround");
+
+        while (current != NULL) 
+        {
+            turnAroundSum += current->finish_time - current->arrival_time;
+            processCount++;
+            fprintf(out,"%-10d %-10d %-10d %-10d %-10d %-12d %-10d\n", current->pid, current->processor_id, current->burst_length, current->arrival_time, current->finish_time, current->waiting_time, current->finish_time - current->arrival_time);
+            //printf("----------------\n");
+            //printf("- id: %d\n", current->pid);
+            //printf("- burst length: %d\n", current->burst_length);
+            //printf("- arrival time: %d\n", current->arrival_time);
+            //printf("- finish time: %d\n", current->finish_time);
+            //printf("- waiting time: %d\n", current->finish_time - current->arrival_time - current->burst_length);
+            //printf("- turnaround time: %d\n", current->finish_time - current->arrival_time);
+            current = current->next;
+   
+        }
+        //printf("----------------\n");
+        //printf("\n");
+        fprintf(out,"average turnaround time: %d ms\n", turnAroundSum / processCount);
     }
 }
 
@@ -472,13 +513,14 @@ void* processor_function(void* arg) {
 
         
         
-        
-	// Simulate the running of the process by sleeping for a while
+        // Simulate the running of the process by sleeping for a while
         remaining_time = current_burst->remaining_time;
-        if (strcmp(algorithm, "RR") == 0 && remaining_time >= q) {
+        if (strcmp(algorithm, "RR") == 0 && remaining_time >= q) 
+        {
             // For RR, if remaining time is greater than quantum, set remaining time to quantum
             remaining_time -= q;
             current_burst->remaining_time = remaining_time;
+            //current_burst->burst_length = current_burst->remaining_time;
         }
         printf("%d", remaining_time);
         usleep(remaining_time * 1000);
@@ -487,16 +529,17 @@ void* processor_function(void* arg) {
         //pthread_mutex_lock(&queue->lock);
        
         current_burst->remaining_time -= remaining_time;
+        //current_burst->burst_length = current_burst->remaining_time;
         printf("\n------------%d------------------%d---", current_burst->pid, current_burst->remaining_time);
         if (current_burst->remaining_time <= 0) {
             // Burst is finished
-            gettimeofday(&current_time,NULL);
-            timestamp = (current_time.tv_sec - start_time.tv_sec)*1000 + (current_time.tv_usec- start_time.tv_usec)/1000;
-
-            current_burst->finish_time = timestamp;
+           
+            struct timeval burstFinishTime;
+            gettimeofday(&burstFinishTime, NULL);
+            current_burst->finish_time = timeval_diff_ms(&start, &burstFinishTime);
             current_burst->turnaround_time = current_burst->finish_time - current_burst->arrival_time;
             current_burst->processor_id = thread_id;
-            //current_burst->waiting_time = current_burst->turnaround_time - current_burst->burst_length;
+            current_burst->waiting_time = current_burst->turnaround_time - current_burst->burst_length;
             push_to_finish_list(finish_list, current_burst);
             printf("pushed");
         } else {
@@ -574,7 +617,7 @@ int main(int argc, char* argv[])
 	int quantum_number = 20;
 	char* infile_name = "in.txt";
 	int out_mode = 1;
-	char* outfile_name = "out.txt";
+	char* outfile_name = "nothing";
 	int method=0;
 
 	
@@ -712,11 +755,19 @@ int main(int argc, char* argv[])
 	char line[MAX_BUF_SIZE];
 	int pid_counter = 1;
 	printf("checkpoint 3- starting processing bursts \n");
- 	gettimeofday(&start_time, NULL);
-
+	int first = 1;
 	// Process the bursts sequentially
 	while (fgets(line, sizeof(line), input_file)) 
 	{
+	 if (first) 
+	 {
+                // Get and record start time
+                
+                gettimeofday(&start, NULL);
+                first = 0;
+        }
+        //struct timeval arrival;
+        //gettimeofday(&arrival, NULL);
         if (strncmp(line, "PL", 2) == 0) 
         { 
             printf("checkpoint 4- PL Reading \n");
@@ -732,15 +783,16 @@ int main(int argc, char* argv[])
             burst->pid = ++last_pid;
             printf("burst id: %d \n",burst-> pid);
             burst->burst_length = burst_length;
-            gettimeofday(&current_time,NULL);
-            timestamp = (current_time.tv_sec - start_time.tv_sec)*1000 + (current_time.tv_usec- start_time.tv_usec)/1000;
-            burst->arrival_time = timestamp;
+            struct timeval arrival;
+            gettimeofday(&arrival, NULL);
+            burst->arrival_time = timeval_diff_ms(&start,&arrival);
             printf("arrival time: %d \n",burst->arrival_time);
 
             burst->remaining_time = burst_length;
             burst->finish_time = 0;
             burst->turnaround_time = 0;
             burst->processor_id = 0;
+            burst->waiting_time = 0;
     
 
             if (strcmp(sch_approach, "S") == 0) 
@@ -814,6 +866,21 @@ int main(int argc, char* argv[])
     		pthread_join(threads[i], NULL);
     		printf("checkpoint 15 - thread %d is joining\n",i);
 	}
-    printf("%-10s %-10s %-10s %-10s %-10s %-12s %-10s\n", "pid", "cpu", "bustlen", "arv", "finish", "waitingtime", "turnaround");
-    displayFinishList(finish_list);
+    if (strcmp(outfile_name, "out.txt") == 0)
+    {
+    	// Write the result to the specified output file
+    	FILE *fp = fopen(outfile_name, "w");
+    	if (fp == NULL) {
+        	fprintf(stderr, "Error: Unable to open output file %s\n", outfile_name);
+       		exit(EXIT_FAILURE);
+    	}
+    	displayFinishListToFile(finish_list,fp);
+    	fclose(fp);
+    }
+    else
+    {
+    	printf("%-10s %-10s %-10s %-10s %-10s %-12s %-10s\n", "pid", "cpu", "bustlen", "arv", "finish", "waitingtime", "turnaround");
+    	displayFinishList(finish_list);
+    }
+    
 }
