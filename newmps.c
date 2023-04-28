@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <time.h>
+#include <limits.h>
 
 #define MAX_BUF_SIZE 256
 #define MAX_NUM_PROCESSORS 10
@@ -124,12 +125,12 @@ time_t get_current_time()
 
 burst_t* find_shortest(queue_t* ready_queue) 
 {
-    burst_t* min_element = NULL;
     burst_t* current_element = ready_queue->head;
+    burst_t* min_element = current_element;
 
-    while (current_element != NULL) 
+    while (current_element != NULL && current_element->remaining_time >= 0) 
     {
-        if (min_element == NULL || current_element->burst_length < min_element->burst_length) 
+        if (current_element->remaining_time < min_element->remaining_time ) 
         {
             min_element = current_element;
         }
@@ -139,6 +140,8 @@ burst_t* find_shortest(queue_t* ready_queue)
 
     return min_element;
 }
+
+
 
 int get_load_balancing_index(int proc_count,queue_t** ready_queues) 
 {
@@ -184,33 +187,37 @@ burst_t* get_burst_by_pid(burst_t* head, int pid)
 }
 
 void remove_burst_from_queue(queue_t* queue, burst_t* burst) {
-   // pthread_mutex_lock(&queue->lock); // lock the queue
+    //pthread_mutex_lock(&queue->lock); // lock the queue
 
     // check if the burst is the head of the queue
     if (queue->head == burst) {
         queue->head = burst->next;
-    } else {
-        // find the burst in the queue
-        burst_t* curr = queue->head;
-        burst_t* prev = NULL;
-        while (curr != NULL && curr != burst) {
-            prev = curr;
-            curr = curr->next;
+        if (queue->tail == burst) {
+            queue->tail = NULL;
         }
-
-        // check if the burst was found
-        if (curr != NULL) {
-            prev->next = curr->next;
-        }
+        queue->size--;
+        //pthread_mutex_unlock(&queue->lock);
+        return;
     }
 
-    // check if the burst is the tail of the queue
-    if (queue->tail == burst) {
-        queue->tail = burst->next;
+    // find the burst in the queue
+    burst_t* curr = queue->head;
+    burst_t* prev = NULL;
+    while (curr != NULL && curr != burst) {
+        prev = curr;
+        curr = curr->next;
     }
 
-    queue->size--; // decrement the size of the queue
- //   pthread_mutex_unlock(&queue->lock); // unlock the queue
+    // check if the burst was found
+    if (curr != NULL) {
+        prev->next = curr->next;
+        if (queue->tail == burst) {
+            queue->tail = prev;
+        }
+        queue->size--;
+    }
+
+    //pthread_mutex_unlock(&queue->lock); // unlock the queue
 }
 
 
@@ -488,8 +495,10 @@ void* processor_function(void* arg) {
             push_to_finish_list(finish_list, current_burst);
             printf("pushed");
         } else {
-            // Burst is not finished, put it back into the queue
-            enqueue_burst(current_burst,queue);
+        	
+        		// Burst is not finished, put it back into the queue
+            		enqueue_burst(current_burst,queue);
+        	
         }
         //pthread_mutex_unlock(&queue->lock);
     }
@@ -773,7 +782,7 @@ int main(int argc, char* argv[])
         burst_t* dummy_burst = malloc(sizeof(burst_t));
         dummy_burst->pid = -1;
         dummy_burst->arrival_time=-1;
-        dummy_burst->burst_length=1000000;
+        dummy_burst->burst_length=-1;
         dummy_burst->finish_time=-1;
         dummy_burst->remaining_time=-1;
         dummy_burst->turnaround_time=-1;
@@ -782,11 +791,11 @@ int main(int argc, char* argv[])
     else{
         burst_t* dummy_burst = malloc(sizeof(burst_t));
         dummy_burst->pid = -1;
-        dummy_burst->arrival_time=-1;
+        dummy_burst->arrival_time=1000000;
         dummy_burst->burst_length=1000000;
-        dummy_burst->finish_time=-1;
-        dummy_burst->remaining_time=-1;
-        dummy_burst->turnaround_time=-1;
+        dummy_burst->finish_time=1000000;
+        dummy_burst->remaining_time=1000000;
+        dummy_burst->turnaround_time=1000000;
 
         for (int i = 0; i < processor_number; i++) {
             enqueue_burst(dummy_burst, &(*ready_queues)[i]);
