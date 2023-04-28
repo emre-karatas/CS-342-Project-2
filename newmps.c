@@ -288,23 +288,29 @@ void displayFinishList(finish_list_t* root)
     else 
     {
         burst_t* current = root->head;
+        int turnAroundSum = 0;
+        int processCount = 0;
 
         while (current != NULL) 
         {
-            printf("----------------\n");
-            printf("- id: %d\n", current->pid);
-            printf("- burst length: %d\n", current->burst_length);
-            printf("- arrival time: %d\n", current->arrival_time);
-            printf("- finish time: %d\n", current->finish_time);
-            printf("- waiting time: %d\n", current->finish_time - current->arrival_time - current->burst_length);
-            printf("- turnaround time: %d\n", current->finish_time - current->arrival_time);
+            turnAroundSum += current->finish_time - current->arrival_time;
+            processCount++;
+            printf("%-10d %-10d %-10d %-10d %-10d %-12d %-10d\n", current->pid, current->processor_id, current->burst_length, current->arrival_time, current->finish_time, current->finish_time - current->arrival_time - current->burst_length, current->finish_time - current->arrival_time);
+            //printf("----------------\n");
+            //printf("- id: %d\n", current->pid);
+            //printf("- burst length: %d\n", current->burst_length);
+            //printf("- arrival time: %d\n", current->arrival_time);
+            //printf("- finish time: %d\n", current->finish_time);
+            //printf("- waiting time: %d\n", current->finish_time - current->arrival_time - current->burst_length);
+            //printf("- turnaround time: %d\n", current->finish_time - current->arrival_time);
             current = current->next;
+   
         }
-        printf("----------------\n");
-        printf("\n");
+        //printf("----------------\n");
+        //printf("\n");
+        printf("average turnaround time: %d ms\n", turnAroundSum / processCount);
     }
 }
-
 void displayList(queue_t* root) 
 {
     if (root == NULL || root->head == NULL) 
