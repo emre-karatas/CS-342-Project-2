@@ -112,15 +112,23 @@ void queue_init(queue_t* queue){
     pthread_mutex_init(&queue->lock, NULL);
 }
 
-void multi_queues_init(queue_t** multi_queues, int num_processors){
-    // Allocate memory for the array of queues
-    *multi_queues = malloc(sizeof(queue_t) * num_processors);
+void multi_queues_init(queue_t** multi_queues, int num_processors) {
+    // Allocate memory for the queue array
+    *multi_queues = malloc(num_processors * sizeof(queue_t));
+    if (*multi_queues == NULL) {
+        fprintf(stderr, "Error: memory allocation failed\n");
+        exit(EXIT_FAILURE);
+    }
 
-    // Initialize each queue in the array
-    for(int i=0; i<num_processors; i++){
-        queue_init(&((*multi_queues)[i]));
+    // Initialize each queue
+    for (int i = 0; i < num_processors; i++) {
+        (*multi_queues)[i].head = NULL;
+        (*multi_queues)[i].tail = NULL;
+        (*multi_queues)[i].size = 0;
+        pthread_mutex_init(&((*multi_queues)[i].lock), NULL);
     }
 }
+
 
 time_t get_current_time() 
 {
@@ -675,15 +683,8 @@ void* processor_function(void* arg) {
 void enqueue_burst_multi(burst_t* burst, queue_t** queue_array, int num_processors, int method) {
     if (method == 1) {  // round-robin method
         int queue_index = burst->pid % num_processors;  // select queue based on PID
-        pthread_mutex_lock(&queue_array[queue_index]->lock);
-        if (queue_array[queue_index]->tail == NULL) {
-            queue_array[queue_index]->head = queue_array[queue_index]->tail = burst;
-        } else {
-            queue_array[queue_index]->tail->next = burst;
-            queue_array[queue_index]->tail = burst;
-        }
-        queue_array[queue_index]->size++;
-        pthread_mutex_unlock(&queue_array[queue_index]->lock);
+        enqueue_burst_rr(burst, &(*queue_array)[queue_index]);
+        printf("\n *** \n burst %d is enqueued in list %d \n **** \n", burst->pid, queue_index);
     } else {  // load-balancing method
         int smallest_queue_index = 0;
         int smallest_queue_size = queue_array[0]->size;
@@ -693,15 +694,7 @@ void enqueue_burst_multi(burst_t* burst, queue_t** queue_array, int num_processo
                 smallest_queue_size = queue_array[i]->size;
             }
         }
-        pthread_mutex_lock(&queue_array[smallest_queue_index]->lock);
-        if (queue_array[smallest_queue_index]->tail == NULL) {
-            queue_array[smallest_queue_index]->head = queue_array[smallest_queue_index]->tail = burst;
-        } else {
-            queue_array[smallest_queue_index]->tail->next = burst;
-            queue_array[smallest_queue_index]->tail = burst;
-        }
-        queue_array[smallest_queue_index]->size++;
-        pthread_mutex_unlock(&queue_array[smallest_queue_index]->lock);
+        enqueue_burst_rr(burst, &(*queue_array)[smallest_queue_index]);
     }
 }
 
@@ -928,6 +921,7 @@ int main(int argc, char* argv[])
             }
             else{
                 enqueue_burst_multi(burst, ready_queues, processor_number,method);
+                printf("check");
             }
         		
 			printf("checkpoint 8- burst is enqueued \n");
@@ -975,10 +969,11 @@ int main(int argc, char* argv[])
         dummy_burst->finish_time=-1;
         dummy_burst->remaining_time=-1;
         dummy_burst->turnaround_time=-1;
-        enqueue_burst(dummy_burst, ready_queue);
 
         for (int i = 0; i < processor_number; i++) {
             enqueue_burst(dummy_burst, &(*ready_queues)[i]);
+            printf("\n *** \n burst %d is enqueued in list %d \n **** \n", dummy_burst->pid, i);
+
         }
     }
 	
