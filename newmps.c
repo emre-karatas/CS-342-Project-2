@@ -150,7 +150,6 @@ burst_t* find_shortest(queue_t* ready_queue)
 }
 
 
-
 int get_load_balancing_index(int proc_count,queue_t** ready_queues) 
 {
     int min;
@@ -287,12 +286,47 @@ int select_queue_index(char* queue_sel_method, int num_queues, int burst_length,
     return index;
 }
 
+void enqueue_burst_rr(burst_t* burst, queue_t* queue) {
+    int lock_result;
+    do {
+        lock_result = pthread_mutex_trylock(&queue->lock);
+        if (lock_result == EBUSY) {
+            printf("WAITING FOR THE LOCK");
+            // The lock is currently held by another thread, so sleep for a short time and try again.
+            usleep(1000);
+        } else if (lock_result != 0) {
+            // An error occurred while trying to obtain the lock, handle it as appropriate
+            return;
+        }
+    } while (lock_result == EBUSY);
+
+    if (queue->tail == NULL) {
+        queue->head = queue->tail = burst;
+    } else {
+        // Add the new burst before the dummy burst
+        if (queue->tail->pid == -1) {
+            // The dummy burst is the last burst in the list
+            burst->next = queue->tail;
+            queue->head = burst;
+        } else {
+            burst->next = queue->tail;
+            queue->tail = burst;
+        }
+    }
+
+    //num_bursts_inqueue++;
+    queue->size++;
+
+    pthread_mutex_unlock(&queue->lock);
+}
+
 
 int curr_pid =0;
 int last_pid=0;
 int num_bursts_inqueue;
 time_t timestamp;
 int end_of_simulation=0;
+//int num_bursts_inqueue = 0;
 
 void displayFinishList(finish_list_t* root) 
 {
@@ -437,7 +471,7 @@ burst_t* pick_from_queue(queue_t* queue, char* algorithm) {
                     queue->tail = NULL;
                 }
                 // set the remaining time of the burst to the quantum number
-                selected_burst->remaining_time = selected_burst->burst_length;
+                //selected_burst->remaining_time = selected_burst->burst_length;
                 // decrement the size of the queue
                 queue->size--;
             }
@@ -490,18 +524,18 @@ void* processor_function(void* arg) {
     int thread_id = args->thread_id;
     finish_list_t* finish_list = args->finish_list;
     queue_t* queue = args->queue;
-    int remaining_time;
+    int sleep_time;
     burst_t* current_burst;
 
     while (end_of_simulation==0) {
         // Pick a process from the queue based on the scheduling algorithm
         //pthread_mutex_lock(&queue->lock);
-        if (queue->size == 0) {
+        //if (queue->size == 0) {
             // Sleep for 1 ms if the queue is empty
             //pthread_mutex_unlock(&queue->lock);
-            usleep(1000);
-            continue;
-        }
+            //usleep(1000);
+            //continue;
+        //}
         current_burst = pick_from_queue(queue, algorithm);
         printf("\n !!! BURST ID%d !!! \n", current_burst->pid);
         //pthread_mutex_unlock(&queue->lock);
@@ -509,27 +543,27 @@ void* processor_function(void* arg) {
         if (current_burst->pid == -1 && queue->size ==0) {
             // This is a dummy burst indicating end of simulation
             end_of_simulation=1;
+            current_burst->remaining_time = 0;
             break;
         }
 
         
-        
         // Simulate the running of the process by sleeping for a while
-        remaining_time = current_burst->remaining_time;
-        if (strcmp(algorithm, "RR") == 0 && remaining_time >= q) 
+        sleep_time = current_burst->remaining_time;
+        if (strcmp(algorithm, "RR") == 0 && sleep_time > q) 
         {
             // For RR, if remaining time is greater than quantum, set remaining time to quantum
-            remaining_time -= q;
-            current_burst->remaining_time = remaining_time;
+            sleep_time = q;
+            //current_burst->remaining_time = remaining_time;
             //current_burst->burst_length = current_burst->remaining_time;
         }
-        printf("%d", remaining_time);
-        usleep(remaining_time * 1000);
+        printf("%d", sleep_time);
+        usleep(sleep_time * 1000);
 
         // Update the remaining time and put it back into the queue
         //pthread_mutex_lock(&queue->lock);
        
-        current_burst->remaining_time -= remaining_time;
+        current_burst->remaining_time -= sleep_time;
         //current_burst->burst_length = current_burst->remaining_time;
         struct timeval cur_time;
         gettimeofday(&cur_time, NULL);
@@ -550,10 +584,19 @@ void* processor_function(void* arg) {
             current_burst->waiting_time = current_burst->turnaround_time - current_burst->burst_length;
             push_to_finish_list(finish_list, current_burst);
             printf("pushed");
-        } else {
+        } else 
+        {
         	
-        		// Burst is not finished, put it back into the queue
-            		enqueue_burst(current_burst,queue);
+      
+            		//if(strcmp(algorithm, "RR") == 0 && strcmp(algorithm, "SJF") == 0)
+            		//{
+            			enqueue_burst_rr(current_burst,queue);
+            		//}
+            		//else
+            		//{
+            			// Burst is not finished, put it back into the queue
+            		//	enqueue_burst(current_burst,queue);
+            		//}
         	
         }
         //pthread_mutex_unlock(&queue->lock);
