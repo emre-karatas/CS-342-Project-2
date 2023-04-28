@@ -345,6 +345,36 @@ int is_end_of_simulation() {
 }
 
 //int num_bursts_inqueue = 0;
+void sortFinishListByPid(finish_list_t* root)
+{
+    if (root == NULL || root->head == NULL)
+    {
+        return;
+    }
+
+    burst_t* current;
+    burst_t* next;
+    burst_t temp;
+
+    for (current = root->head; current != NULL; current = current->next)
+    {
+        for (next = current->next; next != NULL; next = next->next)
+        {
+            if (current->pid > next->pid)
+            {
+                temp = *current;
+                *current = *next;
+                *next = temp;
+
+                // Fix the 'next' pointers after swapping
+                temp.next = current->next;
+                current->next = next->next;
+                next->next = temp.next;
+            }
+        }
+    }
+}
+
 
 void displayFinishList(finish_list_t* root) 
 {
@@ -354,6 +384,7 @@ void displayFinishList(finish_list_t* root)
     }
     else 
     {
+    	sortFinishListByPid(root);
         burst_t* current = root->head;
         int turnAroundSum = 0;
         int processCount = 0;
@@ -387,6 +418,7 @@ void displayFinishListToFile(finish_list_t* root, FILE* out)
     }
     else 
     {
+    	sortFinishListByPid(root);
         burst_t* current = root->head;
         int turnAroundSum = 0;
         int processCount = 0;
@@ -412,6 +444,9 @@ void displayFinishListToFile(finish_list_t* root, FILE* out)
         fprintf(out,"average turnaround time: %d ms\n", turnAroundSum / processCount);
     }
 }
+
+
+
 
 void displayList(queue_t* root) 
 {
