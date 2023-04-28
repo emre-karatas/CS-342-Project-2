@@ -414,6 +414,39 @@ burst_t* pick_from_queue(queue_t* queue, char* algorithm) {
 }
 
 
+void enqueue_burst_rr(burst_t* burst, queue_t* queue) {
+    int lock_result;
+    do {
+        lock_result = pthread_mutex_trylock(&queue->lock);
+        if (lock_result == EBUSY) {
+            printf("WAITING FOR THE LOCK");
+            // The lock is currently held by another thread, so sleep for a short time and try again.
+            usleep(1000);
+        } else if (lock_result != 0) {
+            // An error occurred while trying to obtain the lock, handle it as appropriate
+            return;
+        }
+    } while (lock_result == EBUSY);
+
+    if (queue->tail == NULL) {
+        queue->head = queue->tail = burst;
+    } else {
+        // Add the new burst before the dummy burst
+        if (queue->tail->pid == -1) {
+            // The dummy burst is the last burst in the list
+            burst->next = queue->tail;
+            queue->head = burst;
+        } else {
+            burst->next = queue->tail;
+            queue->tail = burst;
+        }
+    }
+
+    num_bursts_inqueue++;
+    queue->size++;
+
+    pthread_mutex_unlock(&queue->lock);
+}
 
 void enqueue_burst(burst_t* burst, queue_t* queue) {
     int lock_result;
