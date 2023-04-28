@@ -311,6 +311,7 @@ void displayFinishList(finish_list_t* root)
         printf("average turnaround time: %d ms\n", turnAroundSum / processCount);
     }
 }
+
 void displayList(queue_t* root) 
 {
     if (root == NULL || root->head == NULL) 
@@ -482,6 +483,7 @@ void* processor_function(void* arg) {
 
             current_burst->finish_time = timestamp;
             current_burst->turnaround_time = current_burst->finish_time - current_burst->arrival_time;
+            current_burst->processor_id = thread_id;
             //current_burst->waiting_time = current_burst->turnaround_time - current_burst->burst_length;
             push_to_finish_list(finish_list, current_burst);
             printf("pushed");
