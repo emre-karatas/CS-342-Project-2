@@ -51,6 +51,7 @@ struct thread_args {
     char* algorithm;
     int q;
     int thread_id;
+    int out;
     queue_t* queue;
     finish_list_t* finish_list;
 };
@@ -530,6 +531,13 @@ void* processor_function(void* arg) {
        
         current_burst->remaining_time -= remaining_time;
         //current_burst->burst_length = current_burst->remaining_time;
+        struct timeval cur_time;
+        gettimeofday(&cur_time, NULL);
+        if (args->out == 2) {
+                //pthread_mutex_lock(startLock);
+                printf("time=%d, cpu=%d, pid=%d, burstlen=%d, remainingtime=%d\n", timeval_diff_ms(&start, &cur_time), current_burst->processor_id, current_burst->pid, current_burst->burst_length, current_burst->remaining_time);
+                //pthread_mutex_unlock(startLock);
+         }
         printf("\n------------%d------------------%d---", current_burst->pid, current_burst->remaining_time);
         if (current_burst->remaining_time <= 0) {
             // Burst is finished
@@ -729,6 +737,7 @@ int main(int argc, char* argv[])
             args->q = quantum_number;
             args->finish_list=finish_list;
             args->thread_id = i+1;
+            args->out = out_mode;
             args->queue = ready_queue; // Add this line to pass the ready queue
             pthread_create(&threads[i], NULL, processor_function, (void*) args);
         }
@@ -742,6 +751,7 @@ int main(int argc, char* argv[])
             args->q = quantum_number;
             args->finish_list=finish_list;
             args->thread_id = i+1;
+            args->out = out_mode;
             args->queue = &(*ready_queues)[i]; // Add this line to pass the ready queue
             pthread_create(&threads[i], NULL, processor_function, (void*) args);
         }
@@ -846,13 +856,14 @@ int main(int argc, char* argv[])
         enqueue_burst(dummy_burst, ready_queue);
     }
     else{
-        burst_t* dummy_burst = malloc(sizeof(burst_t));
+       burst_t* dummy_burst = malloc(sizeof(burst_t));
         dummy_burst->pid = -1;
-        dummy_burst->arrival_time=1000000;
-        dummy_burst->burst_length=1000000;
-        dummy_burst->finish_time=1000000;
-        dummy_burst->remaining_time=1000000;
-        dummy_burst->turnaround_time=1000000;
+        dummy_burst->arrival_time=-1;
+        dummy_burst->burst_length=-1;
+        dummy_burst->finish_time=-1;
+        dummy_burst->remaining_time=-1;
+        dummy_burst->turnaround_time=-1;
+        enqueue_burst(dummy_burst, ready_queue);
 
         for (int i = 0; i < processor_number; i++) {
             enqueue_burst(dummy_burst, &(*ready_queues)[i]);
@@ -866,6 +877,7 @@ int main(int argc, char* argv[])
     		pthread_join(threads[i], NULL);
     		printf("checkpoint 15 - thread %d is joining\n",i);
 	}
+    
     if (strcmp(outfile_name, "out.txt") == 0)
     {
     	// Write the result to the specified output file
@@ -879,6 +891,11 @@ int main(int argc, char* argv[])
     }
     else
     {
+    	//BURAYI DEGISTIRMEYI UNUTMA!!!!!!!
+    	if(out_mode ==3)
+    	{
+    		 freopen("/dev/null", "w", stdout);
+    	}
     	printf("%-10s %-10s %-10s %-10s %-10s %-12s %-10s\n", "pid", "cpu", "bustlen", "arv", "finish", "waitingtime", "turnaround");
     	displayFinishList(finish_list);
     }
