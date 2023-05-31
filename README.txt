@@ -1,7 +1,7 @@
 Emre Karataş - 22001641
 İpek Öztaş - 22003250
 
-n this project you will implement a program that will simulate multiprocessor
+In this project you will implement a program that will simulate multiprocessor
 scheduling. The program will simulate two approaches for multiprocessor
 scheduling: single-queue approach, and multi-queue approach (Figures 1 and
 2). In single-queue approach, we have a single common ready queue
